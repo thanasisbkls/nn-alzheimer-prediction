@@ -6,7 +6,7 @@ import time
 from typing import Dict, List, Optional, Tuple
 
 from ..config import GAConfig
-from ..utils import set_seed, setup_logger
+from ..utils import setup_logger
 from ..genetic import Population, Individual, TournamentSelection, UniformCrossover, BitFlipMutation
 from ..genetic.fitness_evaluator import FitnessEvaluator
 
@@ -44,7 +44,7 @@ class GeneticAlgorithm:
         self.best_fitness_history: List[float] = []
         self.diversity_history: List[float] = []
         self.no_improvement_counter = 0  # Criterion i: no improvement at all
-        self.low_improvement_counter = 0  # Criterion ii: improvement below threshold
+        self.low_improvement_counter = 0  # Criterion ii: improvement below threshold for the best individual
         self.termination_reason: Optional[str] = None
         
         # Timing
@@ -60,6 +60,14 @@ class GeneticAlgorithm:
     def run(self, num_features: int) -> Dict:
         """
         Run the complete genetic algorithm evolution
+
+        Steps:
+        1. Initialize population
+        2. Evaluate population
+        3. Update statistics
+        4. Check termination conditions
+        5. Create next generation (Selection, Crossover, Mutation)
+        6. Log progress
         
         Args:
             num_features: Number of features in the dataset
@@ -71,9 +79,6 @@ class GeneticAlgorithm:
         self.logger.info(f"Configuration: Population={self.config.population_size}, "
                         f"Generations={self.config.max_generations}, "
                         f"Features={num_features}")
-        
-        # Set random seed for reproducibility
-        set_seed(self.config.random_seed)
         
         # Initialize population
         self._initialize_population(num_features)

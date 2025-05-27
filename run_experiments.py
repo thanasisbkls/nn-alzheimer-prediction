@@ -12,7 +12,6 @@ Implements requirements:
 
 import sys
 import os
-import logging
 import json
 import time
 from datetime import datetime
@@ -143,13 +142,15 @@ class ComprehensiveExperimentRunner:
         
         return full_experiments
     
-    def run_single_ga_run(self, config: GAConfig, run_id: int) -> Dict[str, Any]:
+    def run_single_ga_run(self, config: GAConfig, experiment_id: int, run_id: int) -> Dict[str, Any]:
         """Run a single GA execution"""
         
-        # Set unique random seed for this run
+        # Set unique random seed for this run across ALL experiments and runs
+        # Formula: base_seed + (experiment_id - 1) * 10000 + run_id * 1000
         run_config = GAConfig(**config.to_dict())
-        run_config.random_seed = config.random_seed + run_id * 1000
-        set_seed(run_config.random_seed)
+        unique_seed = config.random_seed + (experiment_id - 1) * 10000 + run_id * 1000
+        run_config.random_seed = unique_seed
+        set_seed(unique_seed)
         
         # Create fitness evaluator
         fitness_evaluator = FitnessEvaluator(
@@ -184,6 +185,7 @@ class ComprehensiveExperimentRunner:
         
         exp_name = experiment['name']
         exp_config = experiment['config']
+        experiment_id = experiment['id']
         
         self.logger.info(f"Starting experiment: {exp_name}")
         self.logger.info(f"Parameters: {experiment['parameters']}")
@@ -200,7 +202,7 @@ class ComprehensiveExperimentRunner:
             self.logger.info(f"  Run {run_id + 1}/{num_runs}")
             
             try:
-                result = self.run_single_ga_run(exp_config, run_id)
+                result = self.run_single_ga_run(exp_config, experiment_id, run_id)
                 result['run_id'] = run_id
                 result['success'] = True
                 

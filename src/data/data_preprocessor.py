@@ -175,6 +175,15 @@ class DataPreprocessor:
         
         # Create dataset and loader
         dataset = TensorDataset(X_tensor, y_tensor)
-        loader = DataLoader(dataset, batch_size=self.batch_size, shuffle=shuffle)
+        
+        # Create generator for reproducible shuffling
+        if shuffle:
+            generator = torch.Generator()
+            # Use current random state for generator initialization
+            import numpy as np
+            generator.manual_seed(np.random.randint(0, 2**32 - 1))
+            loader = DataLoader(dataset, batch_size=self.batch_size, shuffle=shuffle, generator=generator)
+        else:
+            loader = DataLoader(dataset, batch_size=self.batch_size, shuffle=shuffle)
         
         return loader
