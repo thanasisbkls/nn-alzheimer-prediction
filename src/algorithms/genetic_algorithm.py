@@ -2,7 +2,7 @@
 Main Genetic Algorithm controller
 """
 
-import time
+import random
 from typing import Dict, List, Optional, Tuple
 
 from ..config import GAConfig
@@ -47,10 +47,6 @@ class GeneticAlgorithm:
         self.low_improvement_counter = 0  # Criterion ii: improvement below threshold for the best individual
         self.termination_reason: Optional[str] = None
         
-        # Timing
-        self.start_time: Optional[float] = None
-        self.generation_times: List[float] = []
-        
         # Logging
         self.logger = setup_logger(__name__)
         
@@ -82,13 +78,10 @@ class GeneticAlgorithm:
         
         # Initialize population
         self._initialize_population(num_features)
-        self.start_time = time.time()
         
         try:
             # Evolution loop
             for self.generation in range(self.config.max_generations):
-                generation_start = time.time()
-                
                 # Evaluate population
                 self._evaluate_population()
                 
@@ -104,9 +97,7 @@ class GeneticAlgorithm:
                 self._evolve_population()
                 
                 # Log progress
-                generation_time = time.time() - generation_start
-                self.generation_times.append(generation_time)
-                self._log_generation_progress(generation_time)
+                self._log_generation_progress()
             
             # Check if terminated due to max generations
             if self.termination_reason is None:
@@ -123,8 +114,7 @@ class GeneticAlgorithm:
             self.logger.error(f"Error during evolution: {e}")
             raise
         finally:
-            total_time = time.time() - self.start_time if self.start_time else 0
-            self.logger.info(f"Evolution completed in {total_time:.2f} seconds")
+            self.logger.info("Evolution completed")
     
     def _initialize_population(self, num_features: int) -> None:
         """Initialize the population with random individuals"""
@@ -250,7 +240,6 @@ class GeneticAlgorithm:
         if self.config.crossover_rate > 0 and \
            len(self.population.individuals) > 1:  # Need at least 2 parents for crossover
             
-            import random
             if random.random() < self.config.crossover_rate:
                 child1, child2 = self.crossover_operator.crossover(parent1, parent2)
             else:
@@ -265,7 +254,7 @@ class GeneticAlgorithm:
         
         return child1, child2
     
-    def _log_generation_progress(self, generation_time: float) -> None:
+    def _log_generation_progress(self) -> None:
         """Log progress for current generation"""
         if not self.population:
             return
@@ -277,8 +266,7 @@ class GeneticAlgorithm:
                 f"Generation {self.generation:3d}: "
                 f"Best={stats.get('best_fitness', 'N/A'):.4f}, "
                 f"Avg={stats.get('avg_fitness', 'N/A'):.4f}, "
-                f"Diversity={stats.get('diversity', 'N/A'):.3f}, "
-                f"Time={generation_time:.2f}s"
+                f"Diversity={stats.get('diversity', 'N/A'):.3f}"
             )
     
     def _compile_results(self) -> Dict:
@@ -287,7 +275,6 @@ class GeneticAlgorithm:
             raise RuntimeError("Population not initialized")
         
         final_stats = self.population.get_statistics()
-        total_time = time.time() - self.start_time if self.start_time else 0
         
         results = {
             # Best solution (serializable format)
@@ -299,11 +286,7 @@ class GeneticAlgorithm:
                 'num_selected_features': (self.population.best_individual.num_selected_features 
                                          if self.population.best_individual else None)
             },
-            'best_fitness': self.population.best_individual.fitness if self.population.best_individual else None,
-            'best_features': (self.population.best_individual.get_selected_features() 
-                             if self.population.best_individual else None),
-            'best_num_features': (self.population.best_individual.num_selected_features 
-                                 if self.population.best_individual else None),
+
             
             # Evolution statistics
             'generations_completed': self.generation + 1,
@@ -316,8 +299,6 @@ class GeneticAlgorithm:
             'low_improvement_counter': self.low_improvement_counter,
             
             # Performance metrics
-            'total_time': total_time,
-            'avg_generation_time': sum(self.generation_times) / len(self.generation_times) if self.generation_times else 0,
             'fitness_evaluations': len(self.fitness_evaluator.fitness_cache),
             
             # Evolution history
@@ -342,7 +323,7 @@ class GeneticAlgorithm:
             results['convergence_generation'] = self.generation - self.low_improvement_counter + 1
         
         self.logger.info(f"Evolution results: {self.generation + 1} generations, "
-                        f"Best fitness: {results['best_fitness']:.4f}, "
-                        f"Best features: {results['best_num_features']}")
+                        f"Best fitness: {results['best_individual']['fitness']:.4f}, "
+                        f"Best features: {results['best_individual']['num_selected_features']}")
         
         return results 

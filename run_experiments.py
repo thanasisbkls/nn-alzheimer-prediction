@@ -13,7 +13,6 @@ Implements requirements:
 import sys
 import os
 import json
-import time
 from datetime import datetime
 from typing import Dict, List, Any, Tuple
 import pandas as pd
@@ -89,19 +88,10 @@ class ComprehensiveExperimentRunner:
         base_config = {
             'max_generations': 1000,
             'early_stopping_patience': 50,
-            'tournament_size': 3,
+            'min_improvement_threshold': 0.01,
+            'tournament_size': 5,
             'alpha': 0.3,
-            'neural_net_patience': 5,
-            'neural_net_epochs': 100,
-            'batch_size': 32,
-            'learning_rate': 0.01,
-            'hidden_sizes': [16, 8],
-            'activation': 'relu',
-            'output_size': 1,
-            'dropout_rate': 0.0,
-            'momentum': 0.0,
-            'weight_decay': 0.0,
-            'min_improvement_threshold': 0.01
+            'random_seed': 42
         }
         
         # Experiment configurations from the table
@@ -121,23 +111,16 @@ class ComprehensiveExperimentRunner:
         # Create full configurations
         full_experiments = []
         for exp in experiments:
+            # Combine base config with experiment-specific parameters (excluding 'id')
             config_dict = base_config.copy()
-            config_dict.update({
-                'population_size': exp['population_size'],
-                'crossover_rate': exp['crossover_rate'],
-                'mutation_rate': exp['mutation_rate'],
-                'random_seed': 42  # Base seed, will be modified per run
-            })
+            exp_params = {k: v for k, v in exp.items() if k != 'id'}
+            config_dict.update(exp_params)
             
             full_experiments.append({
                 'id': exp['id'],
                 'name': f"Exp{exp['id']}_Pop{exp['population_size']}_Cx{exp['crossover_rate']}_Mut{exp['mutation_rate']:.2f}",
                 'config': GAConfig(**config_dict),
-                'parameters': {
-                    'population_size': exp['population_size'],
-                    'crossover_rate': exp['crossover_rate'],
-                    'mutation_rate': exp['mutation_rate']
-                }
+                'parameters': exp_params
             })
         
         return full_experiments
@@ -147,7 +130,7 @@ class ComprehensiveExperimentRunner:
         
         # Set unique random seed for this run across ALL experiments and runs
         # Formula: base_seed + (experiment_id - 1) * 10000 + run_id * 1000
-        run_config = GAConfig(**config.to_dict())
+        run_config = GAConfig(**config.to_dict())   # Copy the config
         unique_seed = config.random_seed + (experiment_id - 1) * 10000 + run_id * 1000
         run_config.random_seed = unique_seed
         set_seed(unique_seed)
@@ -190,7 +173,6 @@ class ComprehensiveExperimentRunner:
         self.logger.info(f"Starting experiment: {exp_name}")
         self.logger.info(f"Parameters: {experiment['parameters']}")
         
-        start_time = time.time()
         run_results = []
         successful_runs = 0
         
@@ -216,8 +198,9 @@ class ComprehensiveExperimentRunner:
                     all_diversity_histories.append(result['diversity_history'])
                 
                 # Log run result
-                best_fitness = result.get('best_fitness', float('inf'))
-                best_features = result.get('best_num_features', 0)
+                best_individual = result.get('best_individual', {})
+                best_fitness = best_individual.get('fitness', float('inf'))
+                best_features = best_individual.get('num_selected_features', 0)
                 generations = result.get('generations_run', 0)
                 
                 self.logger.info(f"    Run {run_id + 1}: "
@@ -245,8 +228,7 @@ class ComprehensiveExperimentRunner:
                 'config': exp_config.to_dict(),
                 'num_runs': num_runs,
                 'successful_runs': successful_runs,
-                'success_rate': successful_runs / num_runs,
-                'duration': time.time() - start_time
+                'success_rate': successful_runs / num_runs
             },
             'runs': run_results,
             'mean_fitness_history': mean_fitness_history,
@@ -262,7 +244,7 @@ class ComprehensiveExperimentRunner:
     
     def _calculate_mean_histories(self, fitness_histories: List[List[float]], 
                                 diversity_histories: List[List[float]]) -> Tuple[List[float], List[float]]:
-        """Calculate mean evolution curves across runs"""
+        """Create averaged evolution curves from multiple GA runs with possibly different convergence times"""
         
         if not fitness_histories:
             return [], []
@@ -291,8 +273,8 @@ class ComprehensiveExperimentRunner:
         """Calculate comprehensive statistics for an experiment"""
         
         # Extract metrics
-        fitness_values = [r.get('best_fitness', float('inf')) for r in successful_results]
-        feature_counts = [r.get('best_num_features', 0) for r in successful_results]
+        fitness_values = [r.get('best_individual', {}).get('fitness', float('inf')) for r in successful_results]
+        feature_counts = [r.get('best_individual', {}).get('num_selected_features', 0) for r in successful_results]
         generations = [r.get('generations_run', 0) for r in successful_results]
         convergence_flags = [r.get('converged', False) for r in successful_results]
         
@@ -317,7 +299,7 @@ class ComprehensiveExperimentRunner:
                 'std': float(np.std(generations)),
                 'min': int(np.min(generations)),
                 'max': int(np.max(generations)),
-                'median': float(np.median(generations))
+                'median': float(np.median(generations)) 
             },
             'convergence': {
                 'rate': sum(convergence_flags) / len(convergence_flags),
@@ -343,8 +325,6 @@ class ComprehensiveExperimentRunner:
             self.logger.info(f"  {exp['id']}. {exp['name']}: {exp['parameters']}")
         
         # Run all experiments
-        session_start = time.time()
-        
         for experiment in experiments:
             try:
                 result = self.run_experiment_configuration(experiment, num_runs_per_experiment)
@@ -371,8 +351,6 @@ class ComprehensiveExperimentRunner:
         # Compile session results
         session_results = {
             'session_info': {
-                'start_time': datetime.now().isoformat(),
-                'duration': time.time() - session_start,
                 'total_experiments': len(experiments),
                 'num_runs_per_experiment': num_runs_per_experiment
             },
