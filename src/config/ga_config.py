@@ -26,12 +26,12 @@ class GAConfig:
     alpha: float = 0.3  # Feature count penalty weight
     
     # Neural network parameters
-    neural_net_patience: int = 20
-    neural_net_epochs: int = 100
-    batch_size: int = 32
-    learning_rate: float = 0.01
-    momentum: float = 0.0
-    weight_decay: float = 0.0
+    neural_net_patience: int = 10
+    neural_net_epochs: int = 600
+    batch_size: int = 16
+    learning_rate: float = 0.001
+    momentum: float = 0.6
+    weight_decay: float = 0.0001
     dropout_rate: float = 0.0
     
     # Neural network architecture
@@ -45,7 +45,7 @@ class GAConfig:
     def __post_init__(self):
         """Set default hidden layer sizes"""
         if self.hidden_sizes is None:
-            self.hidden_sizes = [16, 8]
+            self.hidden_sizes = [34, 68]
     
     def validate(self) -> None:
         """Validate configuration parameters"""
