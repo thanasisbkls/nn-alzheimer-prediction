@@ -24,10 +24,9 @@ class GAConfig:
     
     # Fitness function parameters
     alpha: float = 0.3  # Feature count penalty weight
-    n_folds: int = 5
     
     # Neural network parameters
-    neural_net_patience: int = 5
+    neural_net_patience: int = 20
     neural_net_epochs: int = 100
     batch_size: int = 32
     learning_rate: float = 0.01
@@ -71,8 +70,6 @@ class GAConfig:
         # Fitness function parameters
         if self.alpha < 0:
             raise ValueError("Alpha must be non-negative")
-        if self.n_folds <= 1:
-            raise ValueError("Number of folds must be greater than 1")
         
         # Neural network training parameters
         if self.neural_net_patience <= 0:
@@ -115,7 +112,6 @@ class GAConfig:
             'mutation_rate': self.mutation_rate,
             'tournament_size': self.tournament_size,
             'alpha': self.alpha,
-            'n_folds': self.n_folds,
             'neural_net_patience': self.neural_net_patience,
             'neural_net_epochs': self.neural_net_epochs,
             'batch_size': self.batch_size,

@@ -8,164 +8,173 @@ import pandas as pd
 import torch
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.preprocessing import OneHotEncoder, StandardScaler, MinMaxScaler
-from typing import Tuple, List
+from typing import List, Optional
 
 
 class DataPreprocessor:
-    """Handles data preprocessing for machine learning models"""
+    """Handles data preprocessing for machine learning models using fixed weights approach"""
     
     def __init__(self, batch_size: int = 32):
         self.batch_size = batch_size
         self._encoders = {}
         self._scalers = {}
+        self._fitted = False  # Track if preprocessors have been fitted
     
-    def preprocess_fold_data(self, 
-                           X_train: pd.DataFrame, 
-                           X_val: pd.DataFrame,
-                           y_train: pd.Series, 
-                           y_val: pd.Series,
-                           categorical_features: List[str], 
-                           numerical_features: List[str]) -> Tuple[DataLoader, DataLoader, int]:
+    def fit_preprocessors(self, 
+                         X_train: pd.DataFrame,
+                         categorical_features: List[str], 
+                         numerical_features: List[str]) -> None:
         """
-        Preprocess data for a single fold
+        Fit preprocessors on training data
         
         Args:
-            X_train: Training features
-            X_val: Validation features
-            y_train: Training targets
-            y_val: Validation targets
+            X_train: Training features to fit preprocessors on
             categorical_features: List of categorical feature names
             numerical_features: List of numerical feature names
+        """
+        # Reset any existing preprocessors
+        self._encoders.clear()
+        self._scalers.clear()
+        
+        # Fit categorical encoders
+        for feature in categorical_features:
+            encoder = OneHotEncoder(sparse_output=False, drop='first')
+            encoder.fit(X_train[[feature]])
+            self._encoders[feature] = encoder    
+        
+        # Fit numerical scalers
+        centering_scaler = StandardScaler(with_std=False)  # Only center, do not standardize
+        centering_scaler.fit(X_train[numerical_features])
+        self._scalers['centering'] = centering_scaler
+
+        # Apply centering and create DataFrame to maintain feature names for MinMaxScaler
+        centered_data = centering_scaler.transform(X_train[numerical_features])
+        centered_df = pd.DataFrame(centered_data, columns=numerical_features, index=X_train.index)
+        
+        minmax_scaler = MinMaxScaler()
+        minmax_scaler.fit(centered_df)  # Fit on DataFrame to preserve feature names
+        self._scalers['minmax'] = minmax_scaler    
+            
+        self._fitted = True
+    
+    def transform_data(self, 
+                      X_data: pd.DataFrame,
+                      categorical_features: List[str], 
+                      numerical_features: List[str],
+                      selected_features: Optional[List[str]] = None) -> pd.DataFrame:
+        """
+        Transform data using fitted preprocessors with optional feature selection
+        
+        Args:
+            X_data: Data to transform
+            categorical_features: List of all categorical feature names
+            numerical_features: List of all numerical feature names
+            selected_features: List of original features to process (for GA individuals)
             
         Returns:
-            Tuple of (train_loader, val_loader, input_size)
+            Transformed DataFrame with only selected and processed features
         """
-        X_train_processed = X_train.copy()
-        X_val_processed = X_val.copy()
+        if not self._fitted:
+            raise ValueError("Preprocessors must be fitted before transforming data. Call fit_preprocessors() first.")
         
-        # Process categorical features
-        X_train_processed, X_val_processed = self._encode_categorical_features(
-            X_train_processed, X_val_processed, categorical_features
-        )
+        # Determine which features to actually process
+        if selected_features is not None:
+            # Filter to only selected features for GA evaluation
+            active_categorical = [f for f in categorical_features if f in selected_features]
+            active_numerical = [f for f in numerical_features if f in selected_features]
+            
+            # Extract only selected features from input data
+            selected_columns = [col for col in selected_features if col in X_data.columns]
+            X_subset = X_data[selected_columns].copy()
+        else:
+            # Process all features for reference model training
+            active_categorical = categorical_features
+            active_numerical = numerical_features
+            X_subset = X_data.copy()
         
-        # Process numerical features
-        if numerical_features:
-            X_train_processed, X_val_processed = self._scale_numerical_features(
-                X_train_processed, X_val_processed, numerical_features
-            )
+        processed_features = []
         
-        # Convert to PyTorch tensors and create data loaders
-        train_loader, val_loader = self._create_data_loaders(
-            X_train_processed, X_val_processed, y_train, y_val
-        )
+        # Apply categorical encoding to selected categorical features
+        if active_categorical: 
+            for feature in active_categorical:
+                if feature in self._encoders and feature in X_subset.columns:
+                    encoder = self._encoders[feature]
+                    
+                    # Transform data
+                    encoded = encoder.transform(X_subset[[feature]])
+                    
+                    # Create feature names (accounting for drop='first')
+                    categories = list(encoder.categories_[0])
+                    feature_names = [f"{feature}_{cat}" for cat in categories[1:]]  # Skip first category
+                        
+                    # Create encoded DataFrame
+                    encoded_df = pd.DataFrame(encoded, columns=feature_names, index=X_data.index)
+                    processed_features.append(encoded_df)
+
         
-        input_size = X_train_processed.shape[1]
-        return train_loader, val_loader, input_size
-    
-    def _encode_categorical_features(self, 
-                                   X_train: pd.DataFrame, 
-                                   X_val: pd.DataFrame,
-                                   categorical_features: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """Encode categorical features using one-hot encoding"""
-        X_train_processed = X_train.copy()
-        X_val_processed = X_val.copy()
-        
-        for feature in categorical_features:
-            if feature not in X_train.columns:
-                continue
+        # Apply numerical scaling to selected numerical features
+        if active_numerical:
+            # Extract selected numerical features
+            numerical_data = X_subset[active_numerical]
+            
+            if len(active_numerical) > 0 and 'centering' in self._scalers and 'minmax' in self._scalers:
+                # Get the features that the scalers were fitted on
+                fitted_features = list(self._scalers['centering'].feature_names_in_)
                 
-            # Create or get encoder
-            if feature not in self._encoders:
-                encoder = OneHotEncoder(sparse_output=False, drop='first', handle_unknown='ignore')
-                encoder.fit(X_train[[feature]])
-                self._encoders[feature] = encoder
-            else:
-                encoder = self._encoders[feature]
-            
-            # Transform data
-            train_encoded = encoder.transform(X_train[[feature]])
-            val_encoded = encoder.transform(X_val[[feature]])
-            
-            # Create feature names
-            categories = list(encoder.categories_[0])
-            if len(categories) > 1:
-                feature_names = [f"{feature}_{cat}" for cat in categories[1:]]
+                # Create temporary data with all fitted features for proper scaling
+                # Ensure proper feature names are maintained to avoid sklearn warnings
+                temp_data = pd.DataFrame(index=X_data.index, columns=fitted_features, dtype=float)
                 
-                # Replace original feature with encoded features
-                train_encoded_df = pd.DataFrame(train_encoded, columns=feature_names, index=X_train.index)
-                val_encoded_df = pd.DataFrame(val_encoded, columns=feature_names, index=X_val.index)
+                # Fill with selected features' data
+                for feature in active_numerical:
+                    if feature in fitted_features:
+                        temp_data[feature] = numerical_data[feature]
+
+                # Scalers expect all features to be present in the data! 
+                # Fill unselected features with their training mean (centering target)
+                centering_means = self._scalers['centering'].mean_
+                for i, feature in enumerate(fitted_features):
+                    if feature not in active_numerical:
+                        temp_data[feature] = centering_means[i]
                 
-                X_train_processed = X_train_processed.drop(columns=[feature])
-                X_val_processed = X_val_processed.drop(columns=[feature])
-                X_train_processed = pd.concat([X_train_processed, train_encoded_df], axis=1)
-                X_val_processed = pd.concat([X_val_processed, val_encoded_df], axis=1)
+                # Apply centering transformation - maintain feature names
+                temp_centered = self._scalers['centering'].transform(temp_data)
+                temp_centered_df = pd.DataFrame(temp_centered, columns=fitted_features, index=X_data.index)
+                
+                # Apply min-max scaling - maintain feature names
+                temp_scaled = self._scalers['minmax'].transform(temp_centered_df)
+                temp_scaled_df = pd.DataFrame(temp_scaled, columns=fitted_features, index=X_data.index)
+                
+                # Extract only the selected numerical features
+                selected_numerical_processed = temp_scaled_df[active_numerical]
+                processed_features.append(selected_numerical_processed)
         
-        return X_train_processed, X_val_processed
+       
+        X_processed = pd.concat(processed_features, axis=1)
+        
+        return X_processed
     
-    def _scale_numerical_features(self, 
-                                X_train: pd.DataFrame, 
-                                X_val: pd.DataFrame,
-                                numerical_features: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """Scale numerical features using standardization and min-max scaling"""
-        X_train_processed = X_train.copy()
-        X_val_processed = X_val.copy()
+    def create_data_loader(self, 
+                          X_data: pd.DataFrame, 
+                          y_data: pd.Series,
+                          shuffle: bool = True) -> DataLoader:
+        """
+        Create a single data loader from preprocessed data
         
-        # Filter features that actually exist
-        existing_numerical = [f for f in numerical_features if f in X_train.columns]
-        
-        if existing_numerical:
-            # Create scalers
-            centering_scaler = StandardScaler(with_std=False)  # Only center, do not standardize
-            minmax_scaler = MinMaxScaler()
+        Args:
+            X_data: Preprocessed feature data
+            y_data: Target data
+            shuffle: Whether to shuffle the data
             
-            centering_scaler.fit(X_train[existing_numerical])
-            minmax_scaler.fit(X_train[existing_numerical])
-            
-            # Transform training data: first center, then min-max scale
-            X_train_processed[existing_numerical] = centering_scaler.transform(
-                X_train[existing_numerical]
-            )
-            X_train_processed[existing_numerical] = minmax_scaler.transform(
-                X_train_processed[existing_numerical]
-            )
-            
-            # Transform validation data: first center, then min-max scale
-            X_val_processed[existing_numerical] = centering_scaler.transform(
-                X_val[existing_numerical]
-            )
-            X_val_processed[existing_numerical] = minmax_scaler.transform(
-                X_val_processed[existing_numerical]
-            )
-            
-            # Store scalers for potential reuse
-            self._scalers['centering'] = centering_scaler
-            self._scalers['minmax'] = minmax_scaler
-        
-        return X_train_processed, X_val_processed
-    
-    def _create_data_loaders(self, 
-                           X_train: pd.DataFrame, 
-                           X_val: pd.DataFrame,
-                           y_train: pd.Series, 
-                           y_val: pd.Series) -> Tuple[DataLoader, DataLoader]:
-        """Create PyTorch data loaders from preprocessed data"""
+        Returns:
+            DataLoader
+        """
         # Convert to tensors
-        X_train_tensor = torch.tensor(X_train.values, dtype=torch.float64)
-        y_train_tensor = torch.tensor(y_train.values, dtype=torch.float64).view(-1, 1)
-        X_val_tensor = torch.tensor(X_val.values, dtype=torch.float64)
-        y_val_tensor = torch.tensor(y_val.values, dtype=torch.float64).view(-1, 1)
+        X_tensor = torch.tensor(X_data.values, dtype=torch.float64)
+        y_tensor = torch.tensor(y_data.values, dtype=torch.float64).view(-1, 1)
         
-        # Create datasets
-        train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
-        val_dataset = TensorDataset(X_val_tensor, y_val_tensor)
+        # Create dataset and loader
+        dataset = TensorDataset(X_tensor, y_tensor)
+        loader = DataLoader(dataset, batch_size=self.batch_size, shuffle=shuffle)
         
-        # Create loaders
-        train_loader = DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)
-        val_loader = DataLoader(val_dataset, batch_size=self.batch_size, shuffle=True)
-        
-        return train_loader, val_loader
-    
-    def reset_preprocessors(self) -> None:
-        """Reset stored preprocessors (useful for new folds)"""
-        self._encoders.clear()
-        self._scalers.clear() 
+        return loader

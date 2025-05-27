@@ -17,7 +17,7 @@ class Individual:
         Initialize individual with binary chromosome
         
         Args:
-            num_features: Number of features in the dataset (default 35 for Alzheimer's dataset)
+            num_features: Number of features in the dataset
             chromosome: Pre-defined chromosome. If None, generates random one
         """
         self.num_features = num_features
@@ -46,6 +46,15 @@ class Individual:
         """
         return list(np.where(self.chromosome == 1)[0])
     
+    def get_chromosome_string(self) -> str:
+        """
+        Get string representation of chromosome for caching
+        
+        Returns:
+            String representation of the binary chromosome
+        """
+        return ''.join(map(str, self.chromosome))
+    
     def copy(self) -> 'Individual':
         """
         Create a deep copy of the individual
@@ -54,6 +63,7 @@ class Individual:
             New Individual instance with copied chromosome
         """
         new_individual = Individual(self.num_features, self.chromosome.copy())
+        # Constructor always sets fitness to None, so we need to copy it from the original individual in the next step.
         new_individual.fitness = self.fitness
         return new_individual
     

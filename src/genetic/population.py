@@ -1,5 +1,7 @@
 """
 Population management for genetic algorithm
+
+This module contains the population management for the genetic algorithm.
 """
 
 import numpy as np

@@ -49,7 +49,7 @@ class AlzheimerDataLoader:
         X = data.drop(columns=['Diagnosis'])
         y = data['Diagnosis']
         
-        # Filter features that actually exist in the dataset
+        # Get the numerical and categorical features separately
         numerical_features = [f for f in self._numerical_features if f in X.columns]
         categorical_features = [f for f in self._categorical_features if f in X.columns]
         

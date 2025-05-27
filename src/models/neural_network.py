@@ -105,14 +105,14 @@ class Trainer:
             model: Neural network model to train
             train_loader: Training data loader
             val_loader: Validation data loader
-            verbose: Verbosity level (0=silent, 1=minimal, 2=detailed)
+            verbose: Verbosity level (0=silent, 1=show progress bar with metrics)
             
         Returns:
             Tuple of (trained_model, metrics_dict)
         """
         # Move model to device
         model.to(self.device)
-        model.double()  # Use double precision for stability
+        model.double()
         
         # Setup optimizer and loss function
         if self.weight_decay > 0:
@@ -144,7 +144,12 @@ class Trainer:
         best_model = None
         
         try:
-            epoch_range = tqdm(range(self.max_epochs)) if verbose == 2 else range(self.max_epochs)
+            # Setup progress bar for verbose mode
+            if verbose == 1:
+                epoch_range = tqdm(range(self.max_epochs), desc="Training", unit="epoch")
+            else:
+                epoch_range = range(self.max_epochs)
+            
             for epoch in epoch_range:
                 # Training phase
                 model.train()
@@ -188,15 +193,14 @@ class Trainer:
                 val_accuracies.append(val_acc)
                 val_mse.append(val_mse_metric)
                 
-                # Verbose logging
-                if verbose == 2:
-                    self.logger.info(f'Epoch {epoch+1}/{self.max_epochs} - '
-                                   f'Train Loss: {epoch_train_loss:.4f}, Train MSE: {epoch_train_mse:.4f}, Train Acc: {epoch_train_acc:.4f} - '
-                                   f'Val Loss: {val_loss:.4f}, Val MSE: {val_mse_metric:.4f}, Val Acc: {val_acc:.4f}')
-                elif verbose == 1 and ((epoch+1) % 5 == 0 or epoch == 0):
-                    self.logger.info(f'Epoch {epoch+1}/{self.max_epochs} - '
-                                   f'Train Loss: {epoch_train_loss:.4f}, Train MSE: {epoch_train_mse:.4f}, Train Acc: {epoch_train_acc:.4f} - '
-                                   f'Val Loss: {val_loss:.4f}, Val MSE: {val_mse_metric:.4f}, Val Acc: {val_acc:.4f}')
+                # Update progress bar with metrics if verbose
+                if verbose == 1:
+                    epoch_range.set_postfix({
+                        'Train_Loss': f'{epoch_train_loss:.4f}',
+                        'Train_Acc': f'{epoch_train_acc:.4f}',
+                        'Val_Loss': f'{val_loss:.4f}',
+                        'Val_Acc': f'{val_acc:.4f}'
+                    })
                 
                 # Early stopping check
                 if val_loss < best_val_loss:
@@ -206,8 +210,7 @@ class Trainer:
                 else:
                     patience_counter += 1
                     if patience_counter >= self.patience:
-                        if verbose >= 1:
-                            self.logger.info(f'Early stopping triggered at epoch {epoch+1}')
+                        print(f'Early stopping triggered at epoch {epoch+1}')
                         break
             
             # Load best model
@@ -225,7 +228,6 @@ class Trainer:
             })
             
         except Exception as e:
-            self.logger.error(f"Error during training: {e}")
             raise
         finally:
             # Clean up memory
@@ -292,8 +294,8 @@ class Trainer:
         with torch.no_grad():
             for batch_x, batch_y in test_loader:
                 batch_x, batch_y = batch_x.to(self.device), batch_y.to(self.device)
-                
                 outputs = model(batch_x)
+
                 loss = criterion(outputs, batch_y)
                 total_loss += loss.item() * batch_x.size(0)
                 
@@ -302,8 +304,9 @@ class Trainer:
                 
                 # Calculate accuracy
                 predictions = (outputs > 0.5).float()
-                correct_predictions += (predictions == batch_y).sum().item()
                 total_predictions += batch_y.size(0)
+                correct_predictions += (predictions == batch_y).sum().item()
+                
         
         avg_loss = total_loss / len(test_loader.dataset)
         avg_mse = total_mse / len(test_loader.dataset)

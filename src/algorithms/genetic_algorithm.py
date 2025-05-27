@@ -3,11 +3,10 @@ Main Genetic Algorithm controller
 """
 
 import time
-import logging
 from typing import Dict, List, Optional, Tuple
 
 from ..config import GAConfig
-from ..utils import set_seed
+from ..utils import set_seed, setup_logger
 from ..genetic import Population, Individual, TournamentSelection, UniformCrossover, BitFlipMutation
 from ..genetic.fitness_evaluator import FitnessEvaluator
 
@@ -53,7 +52,7 @@ class GeneticAlgorithm:
         self.generation_times: List[float] = []
         
         # Logging
-        self.logger = logging.getLogger(__name__)
+        self.logger = setup_logger(__name__)
         
         # Validation
         self.config.validate()

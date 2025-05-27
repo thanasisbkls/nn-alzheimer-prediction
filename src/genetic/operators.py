@@ -11,7 +11,7 @@ from .individual import Individual
 
 
 class TournamentSelection:
-    """Tournament selection with tournament size k=3"""
+    """Tournament selection with tournament size k (default 3)"""
     
     def __init__(self, tournament_size: int = 3):
         self.tournament_size = tournament_size
