@@ -18,8 +18,6 @@ from typing import Dict, List, Any, Tuple
 import pandas as pd
 import numpy as np
 from pathlib import Path
-import matplotlib.pyplot as plt
-import seaborn as sns
 
 # Add src to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
@@ -32,6 +30,10 @@ from src.genetic import (
 )
 from src.algorithms import GeneticAlgorithm
 from src.utils import setup_logger, set_seed
+
+# Import new visualization and reporting modules
+from src.visualization.ga_visualizer import GAVisualizer
+from src.reporting.ga_reporter import GAReporter
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -64,6 +66,10 @@ class ComprehensiveExperimentRunner:
         
         # Load data
         self._load_data()
+        
+        # Initialize visualization and reporting modules
+        self.visualizer = GAVisualizer(self.plots_dir, self.X_data)
+        self.reporter = GAReporter(self.results_dir, self.X_data)
         
         # Results storage
         self.all_results = {}
@@ -403,371 +409,28 @@ class ComprehensiveExperimentRunner:
         
         self.logger.info("Generating visualizations...")
         
-        # Set style for better plots
-        plt.style.use('seaborn-v0_8')
-        sns.set_palette("husl")
-        
-        # 1. Evolution curves for each experiment
-        self._plot_evolution_curves()
-        
-        # 2. Parameter effect analysis
-        self._plot_parameter_effects()
-        
-        # 3. Convergence analysis
-        self._plot_convergence_analysis()
-        
-        # 4. Feature selection analysis
-        self._plot_feature_analysis()
+        # Use the new visualizer module
+        self.visualizer.generate_all_plots(self.all_results, self.summary_statistics)
         
         self.logger.info(f"All plots saved to {self.plots_dir}")
-    
-    def _plot_evolution_curves(self):
-        """Plot evolution curves for each experiment configuration"""
-        
-        # Create subplots for all experiments
-        fig, axes = plt.subplots(2, 5, figsize=(20, 10))
-        fig.suptitle('Evolution Curves: Mean Best Fitness vs Generation', fontsize=16)
-        
-        axes = axes.flatten()
-        
-        for i, (exp_name, exp_result) in enumerate(self.all_results.items()):
-            if 'mean_fitness_history' in exp_result and exp_result['mean_fitness_history']:
-                ax = axes[i]
-                
-                fitness_history = exp_result['mean_fitness_history']
-                generations = list(range(len(fitness_history)))
-                
-                ax.plot(generations, fitness_history, linewidth=2, label='Mean Best Fitness')
-                ax.set_title(f"Exp {exp_result['experiment_info']['id']}: "
-                           f"Pop={exp_result['experiment_info']['parameters']['population_size']}, "
-                           f"Cx={exp_result['experiment_info']['parameters']['crossover_rate']}, "
-                           f"Mut={exp_result['experiment_info']['parameters']['mutation_rate']:.2f}")
-                ax.set_xlabel('Generation')
-                ax.set_ylabel('Fitness')
-                ax.grid(True, alpha=0.3)
-                ax.legend()
-        
-        plt.tight_layout()
-        plt.savefig(self.plots_dir / 'evolution_curves_all.png', dpi=300, bbox_inches='tight')
-        plt.close()
-        
-        # Individual plots for each experiment
-        for exp_name, exp_result in self.all_results.items():
-            if 'mean_fitness_history' in exp_result and exp_result['mean_fitness_history']:
-                plt.figure(figsize=(10, 6))
-                
-                fitness_history = exp_result['mean_fitness_history']
-                generations = list(range(len(fitness_history)))
-                
-                plt.plot(generations, fitness_history, linewidth=2, color='blue', label='Mean Best Fitness')
-                plt.title(f"Evolution Curve - {exp_name}")
-                plt.xlabel('Generation')
-                plt.ylabel('Fitness (Lower is Better)')
-                plt.grid(True, alpha=0.3)
-                plt.legend()
-                
-                plt.tight_layout()
-                plt.savefig(self.plots_dir / f'evolution_curve_{exp_name}.png', dpi=300, bbox_inches='tight')
-                plt.close()
-    
-    def _plot_parameter_effects(self):
-        """Plot the effects of different parameters"""
-        
-        if not self.summary_statistics:
-            return
-        
-        # Create DataFrame for analysis
-        data = []
-        for exp_name, stats in self.summary_statistics.items():
-            data.append({
-                'experiment': exp_name,
-                'population_size': stats['parameters']['population_size'],
-                'crossover_rate': stats['parameters']['crossover_rate'],
-                'mutation_rate': stats['parameters']['mutation_rate'],
-                'mean_fitness': stats['mean_best_fitness'],
-                'mean_features': stats['mean_num_features'],
-                'mean_generations': stats['mean_generations'],
-                'convergence_rate': stats['convergence_rate']
-            })
-        
-        df = pd.DataFrame(data)
-        
-        # Population size effect
-        fig, axes = plt.subplots(2, 2, figsize=(15, 12))
-        fig.suptitle('Parameter Effects Analysis', fontsize=16)
-        
-        # Population size vs fitness
-        pop_groups = df.groupby('population_size')['mean_fitness'].agg(['mean', 'std']).reset_index()
-        axes[0, 0].bar(pop_groups['population_size'].astype(str), pop_groups['mean'], 
-                      yerr=pop_groups['std'], capsize=5)
-        axes[0, 0].set_title('Population Size Effect on Fitness')
-        axes[0, 0].set_xlabel('Population Size')
-        axes[0, 0].set_ylabel('Mean Best Fitness')
-        
-        # Crossover rate vs fitness
-        cx_groups = df.groupby('crossover_rate')['mean_fitness'].agg(['mean', 'std']).reset_index()
-        axes[0, 1].bar(cx_groups['crossover_rate'].astype(str), cx_groups['mean'], 
-                      yerr=cx_groups['std'], capsize=5)
-        axes[0, 1].set_title('Crossover Rate Effect on Fitness')
-        axes[0, 1].set_xlabel('Crossover Rate')
-        axes[0, 1].set_ylabel('Mean Best Fitness')
-        
-        # Mutation rate vs fitness
-        mut_groups = df.groupby('mutation_rate')['mean_fitness'].agg(['mean', 'std']).reset_index()
-        axes[1, 0].bar(mut_groups['mutation_rate'].astype(str), mut_groups['mean'], 
-                      yerr=mut_groups['std'], capsize=5)
-        axes[1, 0].set_title('Mutation Rate Effect on Fitness')
-        axes[1, 0].set_xlabel('Mutation Rate')
-        axes[1, 0].set_ylabel('Mean Best Fitness')
-        
-        # Convergence rate comparison
-        axes[1, 1].bar(range(len(df)), df['convergence_rate'], color='green', alpha=0.7)
-        axes[1, 1].set_title('Convergence Rate by Experiment')
-        axes[1, 1].set_xlabel('Experiment ID')
-        axes[1, 1].set_ylabel('Convergence Rate')
-        axes[1, 1].set_xticks(range(len(df)))
-        axes[1, 1].set_xticklabels([f"Exp{i+1}" for i in range(len(df))], rotation=45)
-        
-        plt.tight_layout()
-        plt.savefig(self.plots_dir / 'parameter_effects.png', dpi=300, bbox_inches='tight')
-        plt.close()
-    
-    def _plot_convergence_analysis(self):
-        """Plot convergence analysis"""
-        
-        if not self.summary_statistics:
-            return
-        
-        # Create convergence comparison plot
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
-        
-        exp_names = list(self.summary_statistics.keys())
-        convergence_rates = [stats['convergence_rate'] for stats in self.summary_statistics.values()]
-        mean_generations = [stats['mean_generations'] for stats in self.summary_statistics.values()]
-        
-        # Convergence rate by experiment
-        bars1 = ax1.bar(range(len(exp_names)), convergence_rates, color='skyblue', alpha=0.8)
-        ax1.set_title('Convergence Rate by Experiment')
-        ax1.set_xlabel('Experiment')
-        ax1.set_ylabel('Convergence Rate')
-        ax1.set_xticks(range(len(exp_names)))
-        ax1.set_xticklabels([f"Exp{i+1}" for i in range(len(exp_names))], rotation=45)
-        ax1.set_ylim(0, 1)
-        
-        # Add value labels on bars
-        for bar, rate in zip(bars1, convergence_rates):
-            ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01, 
-                    f'{rate:.2f}', ha='center', va='bottom')
-        
-        # Mean generations to convergence
-        bars2 = ax2.bar(range(len(exp_names)), mean_generations, color='lightcoral', alpha=0.8)
-        ax2.set_title('Mean Generations to Convergence')
-        ax2.set_xlabel('Experiment')
-        ax2.set_ylabel('Mean Generations')
-        ax2.set_xticks(range(len(exp_names)))
-        ax2.set_xticklabels([f"Exp{i+1}" for i in range(len(exp_names))], rotation=45)
-        
-        # Add value labels on bars
-        for bar, gens in zip(bars2, mean_generations):
-            ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 5, 
-                    f'{gens:.0f}', ha='center', va='bottom')
-        
-        plt.tight_layout()
-        plt.savefig(self.plots_dir / 'convergence_analysis.png', dpi=300, bbox_inches='tight')
-        plt.close()
-    
-    def _plot_feature_analysis(self):
-        """Plot feature selection analysis"""
-        
-        if not self.summary_statistics:
-            return
-        
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
-        
-        exp_names = list(self.summary_statistics.keys())
-        mean_features = [stats['mean_num_features'] for stats in self.summary_statistics.values()]
-        std_features = [stats['std_num_features'] for stats in self.summary_statistics.values()]
-        
-        # Mean number of selected features
-        bars = ax1.bar(range(len(exp_names)), mean_features, yerr=std_features, 
-                      capsize=5, color='lightgreen', alpha=0.8)
-        ax1.set_title('Mean Number of Selected Features')
-        ax1.set_xlabel('Experiment')
-        ax1.set_ylabel('Number of Features')
-        ax1.set_xticks(range(len(exp_names)))
-        ax1.set_xticklabels([f"Exp{i+1}" for i in range(len(exp_names))], rotation=45)
-        
-        # Feature reduction percentage
-        total_features = len(self.X_data.columns)
-        reduction_pct = [(total_features - feat) / total_features * 100 for feat in mean_features]
-        
-        bars2 = ax2.bar(range(len(exp_names)), reduction_pct, color='orange', alpha=0.8)
-        ax2.set_title('Feature Reduction Percentage')
-        ax2.set_xlabel('Experiment')
-        ax2.set_ylabel('Reduction (%)')
-        ax2.set_xticks(range(len(exp_names)))
-        ax2.set_xticklabels([f"Exp{i+1}" for i in range(len(exp_names))], rotation=45)
-        
-        # Add value labels
-        for bar, pct in zip(bars2, reduction_pct):
-            ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1, 
-                    f'{pct:.1f}%', ha='center', va='bottom')
-        
-        plt.tight_layout()
-        plt.savefig(self.plots_dir / 'feature_analysis.png', dpi=300, bbox_inches='tight')
-        plt.close()
     
     def _generate_analysis_report(self):
         """Generate comprehensive analysis report"""
         
-        report_path = self.results_dir / 'analysis_report.txt'
-        
-        with open(report_path, 'w', encoding='utf-8') as f:
-            f.write("COMPREHENSIVE GENETIC ALGORITHM ANALYSIS REPORT\n")
-            f.write("=" * 80 + "\n\n")
-            
-            f.write("EXECUTIVE SUMMARY\n")
-            f.write("-" * 40 + "\n")
-            f.write(f"Total experiments conducted: {len(self.all_results)}\n")
-            f.write(f"Runs per experiment: 10\n")
-            f.write(f"Dataset: {self.X_data.shape[0]} samples, {self.X_data.shape[1]} features\n\n")
-            
-            f.write("PARAMETER EFFECTS ANALYSIS\n")
-            f.write("-" * 40 + "\n")
-            
-            # Population size analysis
-            f.write("1. POPULATION SIZE EFFECT:\n")
-            pop20_exps = [stats for stats in self.summary_statistics.values() 
-                         if stats['parameters']['population_size'] == 20]
-            pop200_exps = [stats for stats in self.summary_statistics.values() 
-                          if stats['parameters']['population_size'] == 200]
-            
-            if pop20_exps and pop200_exps:
-                pop20_fitness = np.mean([exp['mean_best_fitness'] for exp in pop20_exps])
-                pop200_fitness = np.mean([exp['mean_best_fitness'] for exp in pop200_exps])
-                
-                f.write(f"   - Population 20: Mean fitness = {pop20_fitness:.4f}\n")
-                f.write(f"   - Population 200: Mean fitness = {pop200_fitness:.4f}\n")
-                f.write(f"   - Improvement with larger population: {((pop20_fitness - pop200_fitness) / pop20_fitness * 100):.2f}%\n\n")
-            
-            # Crossover rate analysis
-            f.write("2. CROSSOVER RATE EFFECT:\n")
-            for cx_rate in [0.1, 0.6, 0.9]:
-                cx_exps = [stats for stats in self.summary_statistics.values() 
-                          if stats['parameters']['crossover_rate'] == cx_rate]
-                if cx_exps:
-                    cx_fitness = np.mean([exp['mean_best_fitness'] for exp in cx_exps])
-                    f.write(f"   - Crossover {cx_rate}: Mean fitness = {cx_fitness:.4f}\n")
-            f.write("\n")
-            
-            # Mutation rate analysis
-            f.write("3. MUTATION RATE EFFECT:\n")
-            for mut_rate in [0.00, 0.01, 0.10]:
-                mut_exps = [stats for stats in self.summary_statistics.values() 
-                           if abs(stats['parameters']['mutation_rate'] - mut_rate) < 0.001]
-                if mut_exps:
-                    mut_fitness = np.mean([exp['mean_best_fitness'] for exp in mut_exps])
-                    f.write(f"   - Mutation {mut_rate:.2f}: Mean fitness = {mut_fitness:.4f}\n")
-            f.write("\n")
-            
-            f.write("CONVERGENCE ANALYSIS\n")
-            f.write("-" * 40 + "\n")
-            
-            # Best performing experiments
-            sorted_exps = sorted(self.summary_statistics.items(), 
-                               key=lambda x: x[1]['mean_best_fitness'])
-            
-            f.write("TOP 3 BEST PERFORMING CONFIGURATIONS:\n")
-            for i, (exp_name, stats) in enumerate(sorted_exps[:3]):
-                f.write(f"{i+1}. {exp_name}:\n")
-                f.write(f"   - Mean fitness: {stats['mean_best_fitness']:.4f} ± {stats['std_best_fitness']:.4f}\n")
-                f.write(f"   - Mean features: {stats['mean_num_features']:.1f}\n")
-                f.write(f"   - Convergence rate: {stats['convergence_rate']:.2%}\n")
-                f.write(f"   - Parameters: Pop={stats['parameters']['population_size']}, "
-                       f"Cx={stats['parameters']['crossover_rate']}, "
-                       f"Mut={stats['parameters']['mutation_rate']:.2f}\n\n")
-            
-            f.write("CONCLUSIONS AND RECOMMENDATIONS\n")
-            f.write("-" * 40 + "\n")
-            f.write("Based on the experimental results:\n\n")
-            
-            # Add specific conclusions based on results
-            best_exp = sorted_exps[0][1]
-            f.write(f"1. Best configuration uses population size {best_exp['parameters']['population_size']}, "
-                   f"crossover rate {best_exp['parameters']['crossover_rate']}, "
-                   f"and mutation rate {best_exp['parameters']['mutation_rate']:.2f}\n\n")
-            
-            f.write("2. Parameter recommendations:\n")
-            f.write("   - Population size: Larger populations generally provide better exploration\n")
-            f.write("   - Crossover rate: Moderate rates (0.6) often perform well\n")
-            f.write("   - Mutation rate: Low rates (0.01) provide good balance between exploration and exploitation\n\n")
-            
-            f.write("3. Feature selection effectiveness:\n")
-            avg_reduction = np.mean([((len(self.X_data.columns) - stats['mean_num_features']) / 
-                                    len(self.X_data.columns) * 100) 
-                                   for stats in self.summary_statistics.values()])
-            f.write(f"   - Average feature reduction: {avg_reduction:.1f}%\n")
-            f.write(f"   - Original features: {len(self.X_data.columns)}\n")
-            f.write(f"   - Typical selected features: {np.mean([stats['mean_num_features'] for stats in self.summary_statistics.values()]):.1f}\n")
-        
-        self.logger.info(f"Analysis report saved to {report_path}")
+        # Use the new reporter module
+        self.reporter.generate_report(self.all_results, self.summary_statistics)
     
     def _save_results(self, session_results: Dict[str, Any]):
         """Save comprehensive results"""
         
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
-        # Save detailed results
-        results_file = self.results_dir / f"comprehensive_results_{timestamp}.json"
-        with open(results_file, 'w') as f:
-            json.dump(session_results, f, indent=2, cls=NumpyEncoder)
-        
-        # Save summary statistics
-        summary_file = self.results_dir / f"summary_statistics_{timestamp}.json"
-        with open(summary_file, 'w') as f:
-            json.dump(self.summary_statistics, f, indent=2, cls=NumpyEncoder)
-        
-        # Save CSV summary for easy analysis
-        if self.summary_statistics:
-            df_summary = pd.DataFrame.from_dict(self.summary_statistics, orient='index')
-            csv_file = self.results_dir / f"summary_table_{timestamp}.csv"
-            df_summary.to_csv(csv_file)
-        
-        self.logger.info(f"Results saved to {self.results_dir}")
+        # Use the new reporter module
+        self.reporter.save_results(session_results, self.summary_statistics)
     
     def _print_comprehensive_summary(self):
         """Print comprehensive summary"""
         
-        print("\n" + "="*80)
-        print("COMPREHENSIVE EXPERIMENT RESULTS SUMMARY")
-        print("="*80)
-        
-        if not self.summary_statistics:
-            print("No results to display.")
-            return
-        
-        # Create summary table
-        print(f"\n{'ID':<3} {'Population':<10} {'Crossover':<9} {'Mutation':<8} {'Mean Fitness':<12} {'±Std':<8} {'Features':<8} {'Conv.Rate':<9}")
-        print("-" * 80)
-        
-        for exp_name, stats in self.summary_statistics.items():
-            print(f"{stats['id']:<3} "
-                  f"{stats['parameters']['population_size']:<10} "
-                  f"{stats['parameters']['crossover_rate']:<9.1f} "
-                  f"{stats['parameters']['mutation_rate']:<8.2f} "
-                  f"{stats['mean_best_fitness']:<12.4f} "
-                  f"{stats['std_best_fitness']:<8.4f} "
-                  f"{stats['mean_num_features']:<8.1f} "
-                  f"{stats['convergence_rate']:<9.2%}")
-        
-        print("\n" + "="*80)
-        print("ANALYSIS SUMMARY:")
-        print("- Evolution curves plotted for each configuration")
-        print("- Parameter effects analyzed and visualized")
-        print("- Convergence patterns documented")
-        print("- Feature selection effectiveness measured")
-        print("- Comprehensive analysis report generated")
-        print("="*80)
+        # Use the new reporter module
+        self.reporter.print_comprehensive_summary(self.summary_statistics)
 
 
 def main():

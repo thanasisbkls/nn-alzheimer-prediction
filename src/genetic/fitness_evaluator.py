@@ -70,12 +70,21 @@ class FitnessEvaluator:
             stratify=self.y_data
         )
         
-        # Initialize and fit preprocessor on training data
-        self.preprocessor = DataPreprocessor(batch_size=self.config.batch_size)
-        self.preprocessor.fit_preprocessors(X_train, self.categorical_features, self.numerical_features)
+        # Further split training data into train/validation (80/20 of training data)
+        X_train_split, X_val_split, y_train_split, y_val_split = train_test_split(
+            X_train, y_train,
+            test_size=0.2,
+            random_state=self.config.random_seed,
+            stratify=y_train
+        )
         
-        # Transform training data
-        X_train_processed = self.preprocessor.transform_data(X_train, self.categorical_features, self.numerical_features)
+        # Initialize and fit preprocessor on training data only
+        self.preprocessor = DataPreprocessor(batch_size=self.config.batch_size)
+        self.preprocessor.fit_preprocessors(X_train_split, self.categorical_features, self.numerical_features)
+        
+        # Transform training and validation data
+        X_train_processed = self.preprocessor.transform_data(X_train_split, self.categorical_features, self.numerical_features)
+        X_val_processed = self.preprocessor.transform_data(X_val_split, self.categorical_features, self.numerical_features)
         
         # Create reference model
         self.reference_model = Net(
@@ -95,9 +104,9 @@ class FitnessEvaluator:
             weight_decay=self.config.weight_decay
         )
         
-        # Create data loaders for training
-        train_loader = self.preprocessor.create_data_loader(X_train_processed, y_train, shuffle=True)
-        val_loader = self.preprocessor.create_data_loader(X_train_processed, y_train, shuffle=True)
+        # Create data loaders for training with proper train/validation split
+        train_loader = self.preprocessor.create_data_loader(X_train_processed, y_train_split, shuffle=True)
+        val_loader = self.preprocessor.create_data_loader(X_val_processed, y_val_split, shuffle=True)
         
         # Train the model
         self.logger.info("Training reference model...")
