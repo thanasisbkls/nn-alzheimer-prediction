@@ -2,15 +2,14 @@
 """
 Neural Network Comparison Module
 
-Compare the performance of the following models:
-1. Neural network trained with GA-selected features (optimal from experiments)
-2. Neural network trained with all features (reference model)
+Compare the performance of two models in two tasks:
+1. GA-selected features model vs Reference model (all features)
+2. GA model retrained with all features vs Reference model
 
-Analyzes:
-- Generalizability of the two networks
-- Effect of feature selection on NN performance  
+Focus areas:
+- Generalizability of the networks
+- Effect of feature reduction on NN performance  
 - Possibility of overfitting to test data
-- Performance after retraining with entire training set
 """
 
 import sys
@@ -18,10 +17,11 @@ import os
 import json
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
 from pathlib import Path
 from typing import Dict, List, Tuple, Any, Optional
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, confusion_matrix
 import torch
 
 # Add src to path for imports
@@ -32,14 +32,10 @@ from src.data import AlzheimerDataLoader, DataPreprocessor
 from src.models import Net, Trainer
 from src.utils import setup_logger, set_seed
 
-# Import new visualization and reporting modules
-from src.visualization.nn_visualizer import NNVisualizer
-from src.reporting.nn_reporter import NNReporter
 
-
-class NeuralNetworkComparison:
+class SimpleNeuralNetworkComparison:
     """
-    Comprehensive comparison between GA-optimized and reference neural networks
+    Simple comparison between GA-optimized and reference neural networks
     """
     
     def __init__(self, data_file: str = "alzheimers_disease_data.csv"):
@@ -47,21 +43,12 @@ class NeuralNetworkComparison:
         self.data_file = data_file
         self.logger = setup_logger(__name__)
         
-        # Create output directories
-        self.results_dir = Path("comp_analysis_results")
-        self.plots_dir = Path("comp_analysis_plots")
-        self.results_dir.mkdir(exist_ok=True)
+        # Create output directory
+        self.plots_dir = Path("simple_comparison_plots")
         self.plots_dir.mkdir(exist_ok=True)
         
         # Load data
         self._load_data()
-        
-        # Initialize visualization and reporting modules
-        self.visualizer = NNVisualizer(self.plots_dir)
-        self.reporter = NNReporter(self.results_dir, self.X_data)
-        
-        # Results storage
-        self.comparison_results = {}
         
     def _load_data(self):
         """Load and prepare the Alzheimer's dataset"""
@@ -72,8 +59,6 @@ class NeuralNetworkComparison:
             data_loader.load_data(self.data_file)
         
         self.logger.info(f"Data loaded: {self.X_data.shape[0]} samples, {self.X_data.shape[1]} features")
-        self.logger.info(f"Categorical features: {len(self.categorical_features)}")
-        self.logger.info(f"Numerical features: {len(self.numerical_features)}")
         
     def load_best_ga_results(self, results_file: str) -> Dict[str, Any]:
         """Load the best GA experiment results"""        
@@ -242,11 +227,7 @@ class NeuralNetworkComparison:
         }
     
     def _get_detailed_predictions(self, model: torch.nn.Module, test_loader) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Get detailed predictions and probabilities from model
-        
-        Provides individual-level predictions and probabilities for each sample in the test set.
-        """
+        """Get detailed predictions and probabilities from model"""
         
         model.eval()
         all_predictions = []
@@ -261,236 +242,14 @@ class NeuralNetworkComparison:
                 all_predictions.extend(predictions.flatten())
                 all_probabilities.extend(probabilities.flatten())
         
-        return np.array(all_predictions), np.array(all_probabilities) 
+        return np.array(all_predictions), np.array(all_probabilities)
     
-    def compare_models(self, ga_results: Dict[str, Any], reference_results: Dict[str, Any],
-                      y_test: pd.Series) -> Dict[str, Any]:
-        """Compare GA-optimized model with reference model"""
+    def retrain_ga_with_all_features(self, ga_results: Dict[str, Any], selected_features: List[str], 
+                                   config: GAConfig, X_train: pd.DataFrame, y_train: pd.Series,
+                                   X_test: pd.DataFrame, y_test: pd.Series) -> Dict[str, Any]:
+        """Retrain GA model with all features using weight transfer"""
         
-        # Validate input data consistency
-        if len(ga_results['predictions']) != len(y_test):
-            raise ValueError(f"GA predictions length ({len(ga_results['predictions'])}) doesn't match test set length ({len(y_test)})")
-        
-        if len(reference_results['predictions']) != len(y_test):
-            raise ValueError(f"Reference predictions length ({len(reference_results['predictions'])}) doesn't match test set length ({len(y_test)})")
-        
-        if len(ga_results['predictions']) != len(reference_results['predictions']):
-            raise ValueError(f"GA and reference predictions have different lengths: {len(ga_results['predictions'])} vs {len(reference_results['predictions'])}")
-        
-        comparison = {
-            'ga_model': {
-                'test_accuracy': ga_results['test_metrics']['accuracy'],
-                'test_loss': ga_results['test_metrics']['loss'],
-                'test_mse': ga_results['test_metrics']['mse'],
-                'num_features': ga_results['input_size'],
-                'feature_names': ga_results['processed_features']
-            },
-            'reference_model': {
-                'test_accuracy': reference_results['test_metrics']['accuracy'],
-                'test_loss': reference_results['test_metrics']['loss'],
-                'test_mse': reference_results['test_metrics']['mse'],
-                'num_features': reference_results['input_size'],
-                'feature_names': reference_results['processed_features']
-            }
-        }
-        
-        # Calculate performance differences
-        comparison['performance_difference'] = {
-            'accuracy_diff': ga_results['test_metrics']['accuracy'] - reference_results['test_metrics']['accuracy'],
-            'loss_diff': ga_results['test_metrics']['loss'] - reference_results['test_metrics']['loss'],
-            'mse_diff': ga_results['test_metrics']['mse'] - reference_results['test_metrics']['mse'],
-            'feature_reduction': 1 - (ga_results['input_size'] / reference_results['input_size']),
-            'feature_reduction_count': reference_results['input_size'] - ga_results['input_size']
-        }
-        
-        # Detailed classification analysis
-        y_test_array = y_test.values
-        
-        try:
-            # GA model classification report
-            ga_report = classification_report(
-                y_test_array, ga_results['predictions'], 
-                target_names=['No Alzheimer', 'Alzheimer'], 
-                output_dict=True,
-                zero_division=0
-            )
-            
-            # Reference model classification report
-            ref_report = classification_report(
-                y_test_array, reference_results['predictions'],
-                target_names=['No Alzheimer', 'Alzheimer'],
-                output_dict=True,
-                zero_division=0
-            )
-            
-            comparison['classification_reports'] = {
-                'ga_model': ga_report,
-                'reference_model': ref_report
-            }
-            
-            # Confusion matrices
-            comparison['confusion_matrices'] = {
-                'ga_model': confusion_matrix(y_test_array, ga_results['predictions']).tolist(),
-                'reference_model': confusion_matrix(y_test_array, reference_results['predictions']).tolist()
-            }
-            
-        except Exception as e:
-            self.logger.warning(f"Error generating classification reports: {e}")
-            comparison['classification_reports'] = None
-            comparison['confusion_matrices'] = None
-        
-        return comparison
-    
-    def analyze_generalizability(self, ga_results: Dict[str, Any], reference_results: Dict[str, Any], 
-                               config: GAConfig) -> Dict[str, Any]:
-        """Analyze generalizability of both models"""
-        
-        analysis = {}
-        
-        # Enhanced overfitting indicators - need to find best epochs first
-        ga_train_losses = ga_results['training_metrics']['train_losses']
-        ga_val_losses = ga_results['training_metrics']['val_losses']
-        ga_train_accuracies = ga_results['training_metrics']['train_accuracies']
-        ga_val_accuracies = ga_results['training_metrics']['val_accuracies']
-        
-        ref_train_losses = reference_results['training_metrics']['train_losses']
-        ref_val_losses = reference_results['training_metrics']['val_losses']
-        ref_train_accuracies = reference_results['training_metrics']['train_accuracies']
-        ref_val_accuracies = reference_results['training_metrics']['val_accuracies']
-        
-        # Find the epoch with minimum validation loss (best model) - this is the saved model
-        ga_best_val_epoch = ga_val_losses.index(min(ga_val_losses))
-        ref_best_val_epoch = ref_val_losses.index(min(ref_val_losses))
-        
-        # Training vs Test performance gap
-        # Use the training and validation accuracies from the epoch with best validation loss
-        # This corresponds to the actual saved model that was used for testing
-        ga_train_acc_at_best = ga_train_accuracies[ga_best_val_epoch]
-        ga_val_acc_at_best = ga_val_accuracies[ga_best_val_epoch]
-        ga_test_acc = ga_results['test_metrics']['accuracy']
-        
-        ref_train_acc_at_best = ref_train_accuracies[ref_best_val_epoch]
-        ref_val_acc_at_best = ref_val_accuracies[ref_best_val_epoch]
-        ref_test_acc = reference_results['test_metrics']['accuracy']
-        
-        # Calculate generalization gaps using the correct epoch data
-        ga_generalization_gap = ga_val_acc_at_best - ga_test_acc  # Val-test gap for saved model
-        ga_train_val_gap = ga_train_acc_at_best - ga_val_acc_at_best  # Train-val gap at best epoch
-        
-        ref_generalization_gap = ref_val_acc_at_best - ref_test_acc
-        ref_train_val_gap = ref_train_acc_at_best - ref_val_acc_at_best
-        
-        # Also track final epoch metrics for comparison
-        ga_final_train_acc = ga_train_accuracies[-1]
-        ga_final_val_acc = ga_val_accuracies[-1]
-        ref_final_train_acc = ref_train_accuracies[-1]
-        ref_final_val_acc = ref_val_accuracies[-1]
-        
-        analysis['generalization_gaps'] = {
-            'ga_model': {
-                'train_accuracy_at_best': ga_train_acc_at_best,
-                'val_accuracy_at_best': ga_val_acc_at_best,
-                'test_accuracy': ga_test_acc,
-                'val_test_gap': ga_generalization_gap,
-                'train_val_gap_at_best': ga_train_val_gap,
-                'overall_gap_at_best': ga_train_acc_at_best - ga_test_acc,  # Train-test gap for saved model
-                'best_epoch': ga_best_val_epoch,
-                # Final epoch metrics for reference
-                'final_train_accuracy': ga_final_train_acc,
-                'final_val_accuracy': ga_final_val_acc,
-                'final_train_val_gap': ga_final_train_acc - ga_final_val_acc
-            },
-            'reference_model': {
-                'train_accuracy_at_best': ref_train_acc_at_best,
-                'val_accuracy_at_best': ref_val_acc_at_best,
-                'test_accuracy': ref_test_acc,
-                'val_test_gap': ref_generalization_gap,
-                'train_val_gap_at_best': ref_train_val_gap,
-                'overall_gap_at_best': ref_train_acc_at_best - ref_test_acc,
-                'best_epoch': ref_best_val_epoch,
-                # Final epoch metrics for reference
-                'final_train_accuracy': ref_final_train_acc,
-                'final_val_accuracy': ref_final_val_acc,
-                'final_train_val_gap': ref_final_train_acc - ref_final_val_acc
-            }
-        }
-        
-        # Learning curve analysis
-        analysis['learning_curves'] = {
-            'ga_model': {
-                'train_losses': ga_train_losses,
-                'val_losses': ga_val_losses,
-                'train_accuracies': ga_train_accuracies,
-                'val_accuracies': ga_val_accuracies
-            },
-            'reference_model': {
-                'train_losses': ref_train_losses,
-                'val_losses': ref_val_losses,
-                'train_accuracies': ref_train_accuracies,
-                'val_accuracies': ref_val_accuracies
-            }
-        }
-        
-        analysis['overfitting_indicators'] = {
-            'ga_model': {
-                'final_train_val_loss_diff': ga_train_losses[-1] - ga_val_losses[-1],
-                'final_train_val_acc_diff': ga_final_train_acc - ga_final_val_acc,
-                'best_val_epoch': ga_best_val_epoch,
-                'total_epochs': len(ga_train_losses),
-                'early_stopped': len(ga_train_losses) < config.neural_net_epochs,
-                'val_loss_at_best': ga_val_losses[ga_best_val_epoch],
-                'train_loss_at_best': ga_train_losses[ga_best_val_epoch],
-                'loss_divergence_at_best': ga_train_losses[ga_best_val_epoch] - ga_val_losses[ga_best_val_epoch],
-                'acc_divergence_at_best': ga_train_acc_at_best - ga_val_acc_at_best,
-                'max_val_loss_increase': max(ga_val_losses) - min(ga_val_losses),
-                'val_loss_trend': 'increasing' if ga_val_losses[-1] > ga_val_losses[ga_best_val_epoch] else 'stable',
-                'epochs_after_best': len(ga_train_losses) - 1 - ga_best_val_epoch
-            },
-            'reference_model': {
-                'final_train_val_loss_diff': ref_train_losses[-1] - ref_val_losses[-1],
-                'final_train_val_acc_diff': ref_final_train_acc - ref_final_val_acc,
-                'best_val_epoch': ref_best_val_epoch,
-                'total_epochs': len(ref_train_losses),
-                'early_stopped': len(ref_train_losses) < config.neural_net_epochs,
-                'val_loss_at_best': ref_val_losses[ref_best_val_epoch],
-                'train_loss_at_best': ref_train_losses[ref_best_val_epoch],
-                'loss_divergence_at_best': ref_train_losses[ref_best_val_epoch] - ref_val_losses[ref_best_val_epoch],
-                'acc_divergence_at_best': ref_train_acc_at_best - ref_val_acc_at_best,
-                'max_val_loss_increase': max(ref_val_losses) - min(ref_val_losses),
-                'val_loss_trend': 'increasing' if ref_val_losses[-1] > ref_val_losses[ref_best_val_epoch] else 'stable',
-                'epochs_after_best': len(ref_train_losses) - 1 - ref_best_val_epoch
-            }
-        }
-        
-        return analysis
-    
-    def retrain_with_full_dataset(self, ga_results: Dict[str, Any], selected_features: List[str], 
-                                config: GAConfig, X_train: pd.DataFrame, y_train: pd.Series,
-                                X_test: pd.DataFrame, y_test: pd.Series) -> Dict[str, Any]:
-        """
-        Retrain the best GA model using the original dataset (all features).
-        
-        This method:
-        1. Takes the trained GA model (trained on selected features)
-        2. Creates a new model for the full feature set
-        3. Transfers weights from GA model for selected features
-        4. Randomly initializes weights for additional features
-        5. Retrains on the full dataset
-        
-        Args:
-            ga_results: Results from GA model training (contains trained model)
-            selected_features: Features that were selected by GA
-            config: GA configuration
-            X_train: Training features
-            y_train: Training labels
-            X_test: Test features  
-            y_test: Test labels
-            
-        Returns:
-            Dictionary containing retrained model results and comparison
-        """
-        
-        self.logger.info("Retraining GA model with full dataset (weight transfer approach)...")
+        self.logger.info("Retraining GA model with all features using weight transfer...")
         
         # Get the trained GA model
         ga_model = ga_results['model']
@@ -575,19 +334,7 @@ class NeuralNetworkComparison:
         # Get detailed predictions
         predictions, probabilities = self._get_detailed_predictions(trained_full_model, test_loader)
         
-        # Train reference model for comparison (if not already done)
-        reference_results = self.train_neural_network(
-            config=config,
-            X_train=X_train,
-            y_train=y_train,
-            X_test=X_test,
-            y_test=y_test,
-            selected_features=None,
-            model_name="Reference_Full"
-        )
-        
-        # Package results
-        ga_full_results = {
+        return {
             'model': trained_full_model,
             'preprocessor': full_preprocessor,
             'training_metrics': training_metrics,
@@ -595,46 +342,12 @@ class NeuralNetworkComparison:
             'predictions': predictions,
             'probabilities': probabilities,
             'processed_features': list(X_train_full_processed.columns),
-            'input_size': X_train_full_processed.shape[1],
-            'weight_transfer_info': {
-                'original_features': len(X_train_selected_processed.columns),
-                'expanded_features': len(X_train_full_processed.columns),
-                'transferred_weights': True
-            }
-        }
-        
-        # Compare expanded GA model with reference model
-        full_comparison = self.compare_models(ga_full_results, reference_results, y_test)
-        
-        # Analyze generalizability of expanded model
-        full_generalizability = self.analyze_generalizability(ga_full_results, reference_results, config)
-        
-        return {
-            'ga_expanded_results': ga_full_results,
-            'reference_full_results': reference_results,
-            'full_comparison': full_comparison,
-            'full_generalizability': full_generalizability,
-            'weight_transfer_summary': {
-                'selected_features': selected_features,
-                'selected_feature_count': len(selected_features),
-                'total_feature_count': len(self.X_data.columns),
-                'processed_selected_features': len(X_train_selected_processed.columns),
-                'processed_total_features': len(X_train_full_processed.columns),
-                'weights_transferred': True
-            }
+            'input_size': X_train_full_processed.shape[1]
         }
     
     def _transfer_weights(self, source_model: torch.nn.Module, target_model: torch.nn.Module,
                          source_features: List[str], target_features: List[str]):
-        """
-        Transfer weights from source model (GA) to target model (full dataset).
-        
-        Args:
-            source_model: Trained GA model with selected features
-            target_model: New model for full dataset
-            source_features: Feature names from GA model
-            target_features: Feature names for full model
-        """
+        """Transfer weights from source model (GA) to target model (full dataset)"""
         
         self.logger.info("Transferring weights from GA model to expanded model...")
         
@@ -684,110 +397,451 @@ class NeuralNetworkComparison:
         
         self.logger.info("Weight transfer completed")
     
-    def generate_visualizations(self, comparison: Dict[str, Any], generalizability: Dict[str, Any],
-                              full_retrain_results: Dict[str, Any] = None):
-        """Generate comprehensive visualizations"""
+    def compare_and_analyze(self, model1_results: Dict[str, Any], model2_results: Dict[str, Any], 
+                          model1_name: str, model2_name: str, y_test: pd.Series) -> Dict[str, Any]:
+        """Compare two models and analyze generalizability, feature effects, and overfitting"""
         
-        self.logger.info("Generating visualizations...")
+        # Basic comparison
+        comparison = {
+            'model1': {
+                'name': model1_name,
+                'test_accuracy': model1_results['test_metrics']['accuracy'],
+                'test_loss': model1_results['test_metrics']['loss'],
+                'num_features': model1_results['input_size']
+            },
+            'model2': {
+                'name': model2_name,
+                'test_accuracy': model2_results['test_metrics']['accuracy'],
+                'test_loss': model2_results['test_metrics']['loss'],
+                'num_features': model2_results['input_size']
+            }
+        }
         
-        # Use the new visualizer module
-        self.visualizer.generate_all_plots(comparison, generalizability, full_retrain_results)
+        # Performance differences
+        comparison['differences'] = {
+            'accuracy_diff': model1_results['test_metrics']['accuracy'] - model2_results['test_metrics']['accuracy'],
+            'loss_diff': model1_results['test_metrics']['loss'] - model2_results['test_metrics']['loss'],
+            'feature_reduction': 1 - (model1_results['input_size'] / model2_results['input_size']) if model2_results['input_size'] > 0 else 0
+        }
         
-        self.logger.info(f"All plots saved to {self.plots_dir}")
+        # Generalizability analysis
+        generalizability = self._analyze_generalizability(model1_results, model2_results, model1_name, model2_name)
+        
+        # Overfitting analysis
+        overfitting = self._analyze_overfitting(model1_results, model2_results, model1_name, model2_name)
+        
+        return {
+            'comparison': comparison,
+            'generalizability': generalizability,
+            'overfitting': overfitting
+        }
     
-    def generate_comprehensive_report(self, comparison: Dict[str, Any], 
-                                    generalizability: Dict[str, Any],
-                                    selected_features: List[str],
-                                    full_retrain_results: Dict[str, Any] = None):
-        """Generate comprehensive analysis report"""
+    def _analyze_generalizability(self, model1_results: Dict[str, Any], model2_results: Dict[str, Any],
+                                model1_name: str, model2_name: str) -> Dict[str, Any]:
+        """Analyze generalizability by comparing train/val/test performance"""
         
-        # Use the new reporter module
-        self.reporter.generate_report(comparison, generalizability, selected_features, full_retrain_results)
+        # Extract training curves
+        m1_train_losses = model1_results['training_metrics']['train_losses']
+        m1_val_losses = model1_results['training_metrics']['val_losses']
+        m1_train_accs = model1_results['training_metrics']['train_accuracies']
+        m1_val_accs = model1_results['training_metrics']['val_accuracies']
+        
+        m2_train_losses = model2_results['training_metrics']['train_losses']
+        m2_val_losses = model2_results['training_metrics']['val_losses']
+        m2_train_accs = model2_results['training_metrics']['train_accuracies']
+        m2_val_accs = model2_results['training_metrics']['val_accuracies']
+        
+        # Find best epochs (minimum validation loss)
+        m1_best_epoch = m1_val_losses.index(min(m1_val_losses))
+        m2_best_epoch = m2_val_losses.index(min(m2_val_losses))
+        
+        # Calculate generalization gaps
+        m1_train_val_gap = m1_train_accs[m1_best_epoch] - m1_val_accs[m1_best_epoch]
+        m1_val_test_gap = m1_val_accs[m1_best_epoch] - model1_results['test_metrics']['accuracy']
+        
+        m2_train_val_gap = m2_train_accs[m2_best_epoch] - m2_val_accs[m2_best_epoch]
+        m2_val_test_gap = m2_val_accs[m2_best_epoch] - model2_results['test_metrics']['accuracy']
+        
+        return {
+            model1_name: {
+                'train_val_gap': m1_train_val_gap,
+                'val_test_gap': m1_val_test_gap,
+                'total_gap': m1_train_accs[m1_best_epoch] - model1_results['test_metrics']['accuracy'],
+                'best_epoch': m1_best_epoch,
+                'training_curves': {
+                    'train_losses': m1_train_losses,
+                    'val_losses': m1_val_losses,
+                    'train_accuracies': m1_train_accs,
+                    'val_accuracies': m1_val_accs
+                }
+            },
+            model2_name: {
+                'train_val_gap': m2_train_val_gap,
+                'val_test_gap': m2_val_test_gap,
+                'total_gap': m2_train_accs[m2_best_epoch] - model2_results['test_metrics']['accuracy'],
+                'best_epoch': m2_best_epoch,
+                'training_curves': {
+                    'train_losses': m2_train_losses,
+                    'val_losses': m2_val_losses,
+                    'train_accuracies': m2_train_accs,
+                    'val_accuracies': m2_val_accs
+                }
+            }
+        }
     
-    def save_results(self, comparison: Dict[str, Any], generalizability: Dict[str, Any],
-                    selected_features: List[str], full_retrain_results: Dict[str, Any] = None):
-        """Save all results to JSON files"""
+    def _analyze_overfitting(self, model1_results: Dict[str, Any], model2_results: Dict[str, Any],
+                           model1_name: str, model2_name: str) -> Dict[str, Any]:
+        """Analyze overfitting indicators"""
         
-        # Clean the data by removing non-serializable objects (models, preprocessors)
-        clean_comparison = self._clean_results_for_serialization(comparison)
-        clean_generalizability = self._clean_results_for_serialization(generalizability)
-        clean_full_retrain_results = None
-        if full_retrain_results:
-            clean_full_retrain_results = self._clean_results_for_serialization(full_retrain_results)
+        # Training curves
+        m1_train_losses = model1_results['training_metrics']['train_losses']
+        m1_val_losses = model1_results['training_metrics']['val_losses']
+        m2_train_losses = model2_results['training_metrics']['train_losses']
+        m2_val_losses = model2_results['training_metrics']['val_losses']
         
-        # Use the new reporter module with cleaned data
-        self.reporter.save_results(clean_comparison, clean_generalizability, selected_features, clean_full_retrain_results)
+        # Find best epochs and analyze overfitting signs
+        m1_best_epoch = m1_val_losses.index(min(m1_val_losses))
+        m2_best_epoch = m2_val_losses.index(min(m2_val_losses))
+        
+        # Check if validation loss increased after best epoch (overfitting sign)
+        m1_val_increase_after_best = max(m1_val_losses[m1_best_epoch:]) - m1_val_losses[m1_best_epoch] if m1_best_epoch < len(m1_val_losses) - 1 else 0
+        m2_val_increase_after_best = max(m2_val_losses[m2_best_epoch:]) - m2_val_losses[m2_best_epoch] if m2_best_epoch < len(m2_val_losses) - 1 else 0
+        
+        return {
+            model1_name: {
+                'early_stopped': len(m1_train_losses) < 100,  # Assuming max epochs is 100
+                'best_epoch': m1_best_epoch,
+                'epochs_after_best': len(m1_train_losses) - 1 - m1_best_epoch,
+                'val_loss_increase_after_best': m1_val_increase_after_best,
+                'final_train_val_loss_diff': m1_train_losses[-1] - m1_val_losses[-1],
+                'overfitting_score': m1_val_increase_after_best + max(0, m1_train_losses[-1] - m1_val_losses[-1])
+            },
+            model2_name: {
+                'early_stopped': len(m2_train_losses) < 100,
+                'best_epoch': m2_best_epoch,
+                'epochs_after_best': len(m2_train_losses) - 1 - m2_best_epoch,
+                'val_loss_increase_after_best': m2_val_increase_after_best,
+                'final_train_val_loss_diff': m2_train_losses[-1] - m2_val_losses[-1],
+                'overfitting_score': m2_val_increase_after_best + max(0, m2_train_losses[-1] - m2_val_losses[-1])
+            }
+        }
     
-    def _clean_results_for_serialization(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Remove non-serializable objects from results data"""
-        import copy
+    def create_simple_visualizations(self, task1_analysis: Dict[str, Any], task2_analysis: Dict[str, Any],
+                                   selected_features: List[str]):
+        """Create separate focused visualizations for each type of analysis"""
         
-        # Deep copy to avoid modifying original data
-        clean_data = copy.deepcopy(data)
+        # Set up the plot style
+        plt.style.use('default')
+        sns.set_palette("husl", 8)
         
-        def clean_dict(d):
-            if isinstance(d, dict):
-                # Remove known non-serializable keys
-                keys_to_remove = ['model', 'preprocessor']
-                for key in keys_to_remove:
-                    if key in d:
-                        del d[key]
-                
-                # Recursively clean nested dictionaries
-                for key, value in d.items():
-                    if isinstance(value, dict):
-                        clean_dict(value)
-                    elif isinstance(value, list):
-                        clean_list(value)
-            return d
+        self.logger.info("Creating focused visualizations...")
         
-        def clean_list(lst):
-            for item in lst:
-                if isinstance(item, dict):
-                    clean_dict(item)
-                elif isinstance(item, list):
-                    clean_list(item)
+        # 1. Performance Comparison Plot
+        self._create_performance_comparison_plot(task1_analysis, task2_analysis)
         
-        return clean_dict(clean_data)
+        # 2. Feature Analysis Plot
+        self._create_feature_analysis_plot(task1_analysis, selected_features)
+        
+        # 3. Generalizability Analysis Plot
+        self._create_generalizability_plot(task1_analysis, task2_analysis)
+        
+        # 4. Learning Curves Plot
+        self._create_learning_curves_plot(task1_analysis, task2_analysis)
+        
+        self.logger.info(f"All focused plots saved to {self.plots_dir}")
     
-    def run_complete_analysis(self, results_file: str) -> Dict[str, Any]:
-        """Run the complete neural network comparison analysis"""
+    def _create_performance_comparison_plot(self, task1_analysis: Dict[str, Any], task2_analysis: Dict[str, Any]):
+        """Create performance comparison plot"""
+        
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 10))
+        fig.suptitle('Performance Comparison: GA vs Reference Models', fontsize=16, fontweight='bold')
+        
+        # Task 1: Accuracy comparison
+        models_t1 = ['GA Selected\nFeatures', 'Reference\nAll Features']
+        accuracies_t1 = [task1_analysis['comparison']['model1']['test_accuracy'], 
+                        task1_analysis['comparison']['model2']['test_accuracy']]
+        bars1 = ax1.bar(models_t1, accuracies_t1, color=['lightblue', 'lightcoral'], alpha=0.8)
+        ax1.set_title('Task 1: Test Accuracy Comparison')
+        ax1.set_ylabel('Accuracy')
+        ax1.set_ylim(0, max(accuracies_t1) * 1.15)  # Add space for text
+        for bar, acc in zip(bars1, accuracies_t1):
+            ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(accuracies_t1) * 0.02, 
+                    f'{acc:.3f}', ha='center', va='bottom')
+        
+        # Task 2: Accuracy comparison
+        models_t2 = ['GA Retrained\nAll Features', 'Reference\nAll Features']
+        accuracies_t2 = [task2_analysis['comparison']['model1']['test_accuracy'], 
+                        task2_analysis['comparison']['model2']['test_accuracy']]
+        bars2 = ax2.bar(models_t2, accuracies_t2, color=['lightgreen', 'lightcoral'], alpha=0.8)
+        ax2.set_title('Task 2: Test Accuracy Comparison')
+        ax2.set_ylabel('Accuracy')
+        ax2.set_ylim(0, max(accuracies_t2) * 1.15)  # Add space for text
+        for bar, acc in zip(bars2, accuracies_t2):
+            ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(accuracies_t2) * 0.02, 
+                    f'{acc:.3f}', ha='center', va='bottom')
+        
+        # Task 1: Loss comparison
+        losses_t1 = [task1_analysis['comparison']['model1']['test_loss'], 
+                     task1_analysis['comparison']['model2']['test_loss']]
+        bars3 = ax3.bar(models_t1, losses_t1, color=['lightblue', 'lightcoral'], alpha=0.8)
+        ax3.set_title('Task 1: Test Loss Comparison')
+        ax3.set_ylabel('Loss')
+        ax3.set_ylim(0, max(losses_t1) * 1.15)  # Add space for text
+        for bar, loss in zip(bars3, losses_t1):
+            ax3.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(losses_t1) * 0.02, 
+                    f'{loss:.3f}', ha='center', va='bottom')
+        
+        # Task 2: Loss comparison
+        losses_t2 = [task2_analysis['comparison']['model1']['test_loss'], 
+                     task2_analysis['comparison']['model2']['test_loss']]
+        bars4 = ax4.bar(models_t2, losses_t2, color=['lightgreen', 'lightcoral'], alpha=0.8)
+        ax4.set_title('Task 2: Test Loss Comparison')
+        ax4.set_ylabel('Loss')
+        ax4.set_ylim(0, max(losses_t2) * 1.15)  # Add space for text
+        for bar, loss in zip(bars4, losses_t2):
+            ax4.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(losses_t2) * 0.02, 
+                    f'{loss:.3f}', ha='center', va='bottom')
+        
+        plt.tight_layout()
+        plt.savefig(self.plots_dir / '01_performance_comparison.png', dpi=300, bbox_inches='tight')
+        plt.close()
+    
+    def _create_feature_analysis_plot(self, task1_analysis: Dict[str, Any], selected_features: List[str]):
+        """Create feature analysis plot"""
+        
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 10))
+        fig.suptitle('Feature Selection Analysis', fontsize=16, fontweight='bold')
+        
+        # Feature count comparison
+        models = ['GA Selected\nFeatures', 'Reference\nAll Features']
+        feature_counts = [task1_analysis['comparison']['model1']['num_features'],
+                         task1_analysis['comparison']['model2']['num_features']]
+        bars1 = ax1.bar(models, feature_counts, color=['lightgreen', 'lightsalmon'], alpha=0.8)
+        ax1.set_title('Feature Count Comparison')
+        ax1.set_ylabel('Number of Features')
+        for bar, count in zip(bars1, feature_counts):
+            ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1, 
+                    f'{count}', ha='center', va='bottom')
+        
+        # Feature reduction pie chart
+        total_features = len(self.X_data.columns)
+        selected_features_count = len(selected_features)
+        removed_features_count = total_features - selected_features_count
+        
+        sizes = [selected_features_count, removed_features_count]
+        labels = [f'Selected\n({selected_features_count})', f'Removed\n({removed_features_count})']
+        colors = ['lightgreen', 'lightcoral']
+        ax2.pie(sizes, labels=labels, colors=colors, autopct='%1.1f%%', startangle=90)
+        ax2.set_title('Feature Selection Distribution')
+        
+        # Feature reduction vs accuracy scatter
+        feature_reduction_pct = (1 - selected_features_count/total_features) * 100
+        accuracy_with_reduction = task1_analysis['comparison']['model1']['test_accuracy']
+        accuracy_without_reduction = task1_analysis['comparison']['model2']['test_accuracy']
+        
+        ax3.scatter([feature_reduction_pct], [accuracy_with_reduction], 
+                   s=150, color='blue', label='GA Selected Features', alpha=0.8)
+        ax3.scatter([0], [accuracy_without_reduction], 
+                   s=150, color='red', label='All Features', alpha=0.8)
+        ax3.set_title('Feature Reduction vs Accuracy')
+        ax3.set_xlabel('Feature Reduction (%)')
+        ax3.set_ylabel('Test Accuracy')
+        ax3.legend()
+        ax3.grid(True, alpha=0.3)
+        
+        # Accuracy improvement bar
+        accuracy_diff = task1_analysis['comparison']['differences']['accuracy_diff']
+        color = 'green' if accuracy_diff > 0 else 'red'
+        ax4.bar(['Accuracy\nImprovement'], [accuracy_diff], color=color, alpha=0.7)
+        ax4.set_title('Feature Selection Impact')
+        ax4.set_ylabel('Accuracy Difference')
+        ax4.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+        ax4.text(0, accuracy_diff + 0.005 if accuracy_diff > 0 else accuracy_diff - 0.015, 
+                f'{accuracy_diff:+.3f}', ha='center', va='bottom' if accuracy_diff > 0 else 'top')
+        
+        plt.tight_layout()
+        plt.savefig(self.plots_dir / '02_feature_analysis.png', dpi=300, bbox_inches='tight')
+        plt.close()
+    
+    def _create_generalizability_plot(self, task1_analysis: Dict[str, Any], task2_analysis: Dict[str, Any]):
+        """Create generalizability analysis plot"""
+        
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 10))
+        fig.suptitle('Generalizability Analysis', fontsize=16, fontweight='bold')
+        
+        # Task 1: Generalization gaps
+        model1_name_t1 = task1_analysis['comparison']['model1']['name']
+        model2_name_t1 = task1_analysis['comparison']['model2']['name']
+        gap_types = ['Train-Val Gap', 'Val-Test Gap']
+        
+        m1_gaps_t1 = [task1_analysis['generalizability'][model1_name_t1]['train_val_gap'],
+                      task1_analysis['generalizability'][model1_name_t1]['val_test_gap']]
+        m2_gaps_t1 = [task1_analysis['generalizability'][model2_name_t1]['train_val_gap'],
+                      task1_analysis['generalizability'][model2_name_t1]['val_test_gap']]
+        
+        x = np.arange(len(gap_types))
+        width = 0.35
+        ax1.bar(x - width/2, m1_gaps_t1, width, label=model1_name_t1, alpha=0.8)
+        ax1.bar(x + width/2, m2_gaps_t1, width, label=model2_name_t1, alpha=0.8)
+        ax1.set_title('Task 1: Generalization Gaps')
+        ax1.set_ylabel('Accuracy Gap')
+        ax1.set_xticks(x)
+        ax1.set_xticklabels(gap_types)
+        ax1.legend()
+        ax1.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+        
+        # Task 2: Generalization gaps
+        model1_name_t2 = task2_analysis['comparison']['model1']['name']
+        model2_name_t2 = task2_analysis['comparison']['model2']['name']
+        
+        m1_gaps_t2 = [task2_analysis['generalizability'][model1_name_t2]['train_val_gap'],
+                      task2_analysis['generalizability'][model1_name_t2]['val_test_gap']]
+        m2_gaps_t2 = [task2_analysis['generalizability'][model2_name_t2]['train_val_gap'],
+                      task2_analysis['generalizability'][model2_name_t2]['val_test_gap']]
+        
+        ax2.bar(x - width/2, m1_gaps_t2, width, label=model1_name_t2, alpha=0.8)
+        ax2.bar(x + width/2, m2_gaps_t2, width, label=model2_name_t2, alpha=0.8)
+        ax2.set_title('Task 2: Generalization Gaps')
+        ax2.set_ylabel('Accuracy Gap')
+        ax2.set_xticks(x)
+        ax2.set_xticklabels(gap_types)
+        ax2.legend()
+        ax2.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+        
+        # Combined train-val gaps comparison
+        models_combined = ['Task 1\nGA Selected', 'Task 1\nReference', 'Task 2\nGA Retrained', 'Task 2\nReference']
+        train_val_gaps = [
+            task1_analysis['generalizability'][model1_name_t1]['train_val_gap'],
+            task1_analysis['generalizability'][model2_name_t1]['train_val_gap'],
+            task2_analysis['generalizability'][model1_name_t2]['train_val_gap'],
+            task2_analysis['generalizability'][model2_name_t2]['train_val_gap']
+        ]
+        colors = ['lightblue', 'lightcoral', 'lightgreen', 'lightcoral']
+        bars = ax3.bar(models_combined, train_val_gaps, color=colors, alpha=0.8)
+        ax3.set_title('Train-Validation Gaps Comparison')
+        ax3.set_ylabel('Train-Val Gap')
+        ax3.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+        ax3.tick_params(axis='x', rotation=45)
+        
+        # Combined val-test gaps comparison
+        val_test_gaps = [
+            task1_analysis['generalizability'][model1_name_t1]['val_test_gap'],
+            task1_analysis['generalizability'][model2_name_t1]['val_test_gap'],
+            task2_analysis['generalizability'][model1_name_t2]['val_test_gap'],
+            task2_analysis['generalizability'][model2_name_t2]['val_test_gap']
+        ]
+        bars = ax4.bar(models_combined, val_test_gaps, color=colors, alpha=0.8)
+        ax4.set_title('Validation-Test Gaps Comparison')
+        ax4.set_ylabel('Val-Test Gap')
+        ax4.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+        ax4.tick_params(axis='x', rotation=45)
+        
+        plt.tight_layout()
+        plt.savefig(self.plots_dir / '03_generalizability_analysis.png', dpi=300, bbox_inches='tight')
+        plt.close()
+    
+    def _create_learning_curves_plot(self, task1_analysis: Dict[str, Any], task2_analysis: Dict[str, Any]):
+        """Create learning curves plot"""
+        
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
+        fig.suptitle('Learning Curves Analysis', fontsize=16, fontweight='bold')
+        
+        # Task 1: GA Selected vs Reference
+        model1_name_t1 = task1_analysis['comparison']['model1']['name']
+        model2_name_t1 = task1_analysis['comparison']['model2']['name']
+        
+        m1_curves_t1 = task1_analysis['generalizability'][model1_name_t1]['training_curves']
+        epochs1_t1 = range(len(m1_curves_t1['train_accuracies']))
+        
+        ax1.plot(epochs1_t1, m1_curves_t1['train_accuracies'], 'b-', label='Train', alpha=0.8, linewidth=2)
+        ax1.plot(epochs1_t1, m1_curves_t1['val_accuracies'], 'b--', label='Validation', alpha=0.8, linewidth=2)
+        ax1.set_title(f'Task 1: {model1_name_t1} Learning Curves')
+        ax1.set_xlabel('Epoch')
+        ax1.set_ylabel('Accuracy')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        
+        m2_curves_t1 = task1_analysis['generalizability'][model2_name_t1]['training_curves']
+        epochs2_t1 = range(len(m2_curves_t1['train_accuracies']))
+        
+        ax2.plot(epochs2_t1, m2_curves_t1['train_accuracies'], 'r-', label='Train', alpha=0.8, linewidth=2)
+        ax2.plot(epochs2_t1, m2_curves_t1['val_accuracies'], 'r--', label='Validation', alpha=0.8, linewidth=2)
+        ax2.set_title(f'Task 1: {model2_name_t1} Learning Curves')
+        ax2.set_xlabel('Epoch')
+        ax2.set_ylabel('Accuracy')
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+        
+        # Task 2: GA Retrained vs Reference
+        model1_name_t2 = task2_analysis['comparison']['model1']['name']
+        model2_name_t2 = task2_analysis['comparison']['model2']['name']
+        
+        m1_curves_t2 = task2_analysis['generalizability'][model1_name_t2]['training_curves']
+        epochs1_t2 = range(len(m1_curves_t2['train_accuracies']))
+        
+        ax3.plot(epochs1_t2, m1_curves_t2['train_accuracies'], 'g-', label='Train', alpha=0.8, linewidth=2)
+        ax3.plot(epochs1_t2, m1_curves_t2['val_accuracies'], 'g--', label='Validation', alpha=0.8, linewidth=2)
+        ax3.set_title(f'Task 2: {model1_name_t2} Learning Curves')
+        ax3.set_xlabel('Epoch')
+        ax3.set_ylabel('Accuracy')
+        ax3.legend()
+        ax3.grid(True, alpha=0.3)
+        
+        m2_curves_t2 = task2_analysis['generalizability'][model2_name_t2]['training_curves']
+        epochs2_t2 = range(len(m2_curves_t2['train_accuracies']))
+        
+        ax4.plot(epochs2_t2, m2_curves_t2['train_accuracies'], 'r-', label='Train', alpha=0.8, linewidth=2)
+        ax4.plot(epochs2_t2, m2_curves_t2['val_accuracies'], 'r--', label='Validation', alpha=0.8, linewidth=2)
+        ax4.set_title(f'Task 2: {model2_name_t2} Learning Curves')
+        ax4.set_xlabel('Epoch')
+        ax4.set_ylabel('Accuracy')
+        ax4.legend()
+        ax4.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(self.plots_dir / '04_learning_curves.png', dpi=300, bbox_inches='tight')
+        plt.close()
+    
+    def run_comparison_analysis(self, results_file: str) -> Dict[str, Any]:
+        """Run the complete two-task comparison analysis"""
         
         self.logger.info("="*80)
-        self.logger.info("STARTING NEURAL NETWORK COMPARISON ANALYSIS")
+        self.logger.info("STARTING SIMPLE NEURAL NETWORK COMPARISON ANALYSIS")
         self.logger.info("="*80)
         
         try:
-            # 1. Load best GA results
-            self.logger.info("Step 1: Loading best GA experiment results...")
+            # 1. Load best GA results and extract features
+            self.logger.info("Step 1: Loading GA results and extracting features...")
             best_experiment = self.load_best_ga_results(results_file)
-            
-            # 2. Extract selected features
-            self.logger.info("Step 2: Extracting selected features from best individual...")
             selected_features = self.extract_best_individual_features(best_experiment)
             
-            # 3. Create train/test splits
-            self.logger.info("Step 3: Creating train/test splits...")
+            # 2. Create train/test splits
+            self.logger.info("Step 2: Creating train/test splits...")
             X_train, X_test, y_train, y_test = self.create_train_test_splits()
             
-            # 4. Get GA configuration from best experiment
+            # 3. Get GA configuration
             config_dict = best_experiment['experiment_info']['config']
             config = GAConfig(**config_dict)
             
-            # 5. Train GA model with selected features
-            self.logger.info("Step 4: Training GA model with selected features...")
-            ga_results = self.train_neural_network(
+            # TASK 1: GA Selected Features vs Reference
+            self.logger.info("="*50)
+            self.logger.info("TASK 1: GA Selected Features vs Reference Model")
+            self.logger.info("="*50)
+            
+            # Train GA model with selected features
+            self.logger.info("Training GA model with selected features...")
+            ga_selected_results = self.train_neural_network(
                 config=config,
                 X_train=X_train,
                 y_train=y_train,
                 X_test=X_test,
                 y_test=y_test,
                 selected_features=selected_features,
-                model_name="GA_Model"
+                model_name="GA_Selected"
             )
             
-            # 6. Train reference model with all features
-            self.logger.info("Step 5: Training reference model with all features...")
+            # Train reference model with all features
+            self.logger.info("Training reference model with all features...")
             reference_results = self.train_neural_network(
                 config=config,
                 X_train=X_train,
@@ -795,82 +849,73 @@ class NeuralNetworkComparison:
                 X_test=X_test,
                 y_test=y_test,
                 selected_features=None,
-                model_name="Reference_Model"
+                model_name="Reference"
             )
             
-            # 7. Compare models
-            self.logger.info("Step 6: Comparing model performance...")
-            comparison = self.compare_models(ga_results, reference_results, y_test)
+            # Compare and analyze Task 1
+            task1_analysis = self.compare_and_analyze(
+                ga_selected_results, reference_results,
+                "GA_Selected", "Reference", y_test
+            )
             
-            # 8. Analyze generalizability
-            self.logger.info("Step 7: Analyzing generalizability...")
-            generalizability = self.analyze_generalizability(ga_results, reference_results, config)
+            # TASK 2: GA Retrained (All Features) vs Reference
+            self.logger.info("="*50)
+            self.logger.info("TASK 2: GA Retrained with All Features vs Reference Model")
+            self.logger.info("="*50)
             
-            # 9. Retrain with full dataset
-            self.logger.info("Step 8: Retraining with full dataset...")
-            full_retrain_results = self.retrain_with_full_dataset(ga_results, selected_features, config, X_train, y_train, X_test, y_test)
+            # Retrain GA architecture with all features
+            self.logger.info("Retraining GA architecture with all features...")
+            ga_all_features_results = self.retrain_ga_with_all_features(
+                ga_selected_results, selected_features, config, X_train, y_train, X_test, y_test
+            )
             
-            # 10. Generate visualizations
-            self.logger.info("Step 9: Generating visualizations...")
-            self.generate_visualizations(comparison, generalizability, full_retrain_results)
+            # Compare and analyze Task 2
+            task2_analysis = self.compare_and_analyze(
+                ga_all_features_results, reference_results,
+                "GA_All_Features", "Reference", y_test
+            )
             
-            # 11. Generate comprehensive report
-            self.logger.info("Step 10: Generating comprehensive report...")
-            self.generate_comprehensive_report(comparison, generalizability, selected_features, full_retrain_results)
-            
-            # 12. Save results
-            self.logger.info("Step 11: Saving results...")
-            self.save_results(comparison, generalizability, selected_features, full_retrain_results)
-            
-            # 13. Print summary
-            self._print_analysis_summary(comparison, generalizability, selected_features, full_retrain_results)
+            # 4. Generate simple visualizations
+            self.logger.info("Step 3: Generating visualizations...")
+            self.create_simple_visualizations(task1_analysis, task2_analysis, selected_features)
             
             self.logger.info("="*80)
-            self.logger.info("NEURAL NETWORK COMPARISON ANALYSIS COMPLETED SUCCESSFULLY")
+            self.logger.info("SIMPLE NEURAL NETWORK COMPARISON ANALYSIS COMPLETED")
             self.logger.info("="*80)
             
             return {
-                'comparison': comparison,
-                'generalizability': generalizability,
-                'selected_features': selected_features,
-                'full_retrain_results': full_retrain_results
+                'task1_analysis': task1_analysis,
+                'task2_analysis': task2_analysis,
+                'selected_features': selected_features
             }
             
         except Exception as e:
             self.logger.error(f"Analysis failed: {e}", exc_info=True)
             raise
-    
-    def _print_analysis_summary(self, comparison: Dict[str, Any], generalizability: Dict[str, Any],
-                              selected_features: List[str], full_retrain_results: Dict[str, Any]):
-        """Print comprehensive analysis summary"""
-        
-        # Use the new reporter module
-        self.reporter.print_analysis_summary(comparison, generalizability, selected_features, full_retrain_results)
 
 
 def main(results_file: str):
-    """Main function to run the neural network comparison analysis"""
+    """Main function to run the simple neural network comparison analysis"""
     
     # Setup logging
     os.makedirs("logs", exist_ok=True)
     from datetime import datetime
-    log_file = f"logs/nn_comparison_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    log_file = f"logs/simple_nn_comparison_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     logger = setup_logger(__name__, log_file)
     
     try:
         # Create and run analysis
-        analyzer = NeuralNetworkComparison("alzheimers_disease_data.csv")
-        results = analyzer.run_complete_analysis(results_file)
+        analyzer = SimpleNeuralNetworkComparison("alzheimers_disease_data.csv")
+        results = analyzer.run_comparison_analysis(results_file)
         
-        logger.info("Neural network comparison analysis completed successfully!")
+        logger.info("Simple neural network comparison analysis completed successfully!")
         logger.info(f"Log file: {log_file}")
-        logger.info(f"Results saved to: {analyzer.results_dir}")
         logger.info(f"Plots saved to: {analyzer.plots_dir}")
         
         return results
         
     except Exception as e:
-        logger.error(f"Neural network comparison analysis failed: {e}", exc_info=True)
+        logger.error(f"Simple neural network comparison analysis failed: {e}", exc_info=True)
         raise
 
 
@@ -878,7 +923,7 @@ if __name__ == "__main__":
     import sys
     if len(sys.argv) != 2:
         print("Usage: python neural_network_comparison.py <results_file>")
-        print("Example: python neural_network_comparison.py /experiment_results/comprehensive_results_20250605_005118.json")
+        print("Example: python neural_network_comparison.py experiment_results/comprehensive_results_20250605_005118.json")
         sys.exit(1)
     
     results_file = sys.argv[1]
