@@ -15,7 +15,6 @@ import os
 import json
 from datetime import datetime
 from typing import Dict, List, Any, Tuple
-import pandas as pd
 import numpy as np
 from pathlib import Path
 
@@ -446,7 +445,7 @@ def main():
         runner = ComprehensiveExperimentRunner("alzheimers_disease_data.csv")
         
         # Run all experiments with 10 runs each
-        results = runner.run_all_experiments(num_runs_per_experiment=2)
+        results = runner.run_all_experiments(num_runs_per_experiment=10)
         
         logger.info("Comprehensive experiments completed successfully!")
         logger.info(f"Log file: {log_file}")

@@ -7,7 +7,6 @@ Extracts all reporting functionality from the neural network comparison module.
 """
 
 import pandas as pd
-import numpy as np
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from .base_reporter import BaseReporter

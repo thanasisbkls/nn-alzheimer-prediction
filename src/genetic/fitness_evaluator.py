@@ -154,7 +154,7 @@ class FitnessEvaluator:
         # Convert selected feature indices to feature names
         selected_feature_names = [self.X_data.columns[i] for i in selected_feature_indices]
         
-        # Set context for weight copying (store selected features for sophisticated mapping)
+        # Set context for weight copying
         self._current_selected_features = selected_feature_names
         
         # Transform test data with selected features
@@ -270,31 +270,16 @@ class FitnessEvaluator:
                         else:
                             self.logger.warning(f"Dimension mismatch for {name}: "
                                               f"expected {target_param.shape}, got {selected_weights.shape}")
-                            # Fallback: copy what we can
-                            min_rows = min(target_param.shape[0], selected_weights.shape[0])
-                            min_cols = min(target_param.shape[1], selected_weights.shape[1])
-                            target_state[name][:min_rows, :min_cols] = selected_weights[:min_rows, :min_cols].clone()
                 
                 elif name.endswith('.0.bias'):  # First layer bias
                     # First layer bias should be copied directly (same hidden layer size)
                     if source_param.shape == target_param.shape:
                         target_state[name] = source_param.clone()
-                    else:
-                        min_size = min(target_param.shape[0], source_param.shape[0])
-                        target_state[name][:min_size] = source_param[:min_size].clone()
                 
                 else:  # All other layers (hidden layers, output layer)
                     # Copy directly as they should have the same dimensions
                     if source_param.shape == target_param.shape:
                         target_state[name] = source_param.clone()
-                    elif 'weight' in name and len(source_param.shape) == 2:
-                        # Handle potential dimension mismatches in hidden layers
-                        min_rows = min(target_param.shape[0], source_param.shape[0])
-                        min_cols = min(target_param.shape[1], source_param.shape[1])
-                        target_state[name][:min_rows, :min_cols] = source_param[:min_rows, :min_cols].clone()
-                    elif 'bias' in name and len(source_param.shape) == 1:
-                        min_size = min(target_param.shape[0], source_param.shape[0])
-                        target_state[name][:min_size] = source_param[:min_size].clone()
         
         target_model.load_state_dict(target_state)
         

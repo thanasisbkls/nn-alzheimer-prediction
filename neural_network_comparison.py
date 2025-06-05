@@ -878,7 +878,7 @@ if __name__ == "__main__":
     import sys
     if len(sys.argv) != 2:
         print("Usage: python neural_network_comparison.py <results_file>")
-        print("Example: python neural_network_comparison.py ga_results/ga_experiment_results_20241201_123456.json")
+        print("Example: python neural_network_comparison.py /experiment_results/comprehensive_results_20250605_005118.json")
         sys.exit(1)
     
     results_file = sys.argv[1]

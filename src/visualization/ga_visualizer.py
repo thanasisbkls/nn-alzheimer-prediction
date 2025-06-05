@@ -111,8 +111,8 @@ class GAVisualizer(BaseVisualizer):
         
         df = pd.DataFrame(data)
         
-        # Create parameter effects plot
-        fig, axes = self.create_subplot_grid(2, 2, figsize=(15, 12), 
+        # Create parameter effects plot with larger figure size
+        fig, axes = self.create_subplot_grid(2, 2, figsize=(16, 14), 
                                            suptitle='Parameter Effects Analysis')
         
         # Population size vs fitness
@@ -139,15 +139,17 @@ class GAVisualizer(BaseVisualizer):
         axes[1, 0].set_xlabel('Mutation Rate')
         axes[1, 0].set_ylabel('Mean Best Fitness')
         
-        # Convergence rate comparison
+        # Convergence rate comparison with better spacing
         bars = axes[1, 1].bar(range(len(df)), df['convergence_rate'], color='green', alpha=0.7)
         axes[1, 1].set_title('Convergence Rate by Experiment')
-        axes[1, 1].set_xlabel('Experiment ID')
+        axes[1, 1].set_xlabel('Experiment')
         axes[1, 1].set_ylabel('Convergence Rate')
         axes[1, 1].set_xticks(range(len(df)))
-        axes[1, 1].set_xticklabels([f"Exp{i+1}" for i in range(len(df))], rotation=45)
+        # Use shorter labels without rotation
+        axes[1, 1].set_xticklabels([f"E{i+1}" for i in range(len(df))])
         
-        plt.tight_layout()
+        # Add padding between subplots
+        plt.subplots_adjust(hspace=0.3, wspace=0.3)
         self.save_plot('parameter_effects.png')
     
     def plot_convergence_analysis(self, summary_statistics: Dict[str, Any]):
@@ -156,8 +158,8 @@ class GAVisualizer(BaseVisualizer):
         if not summary_statistics:
             return
         
-        # Create convergence comparison plot
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+        # Create convergence comparison plot with larger figure size
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
         
         exp_names = list(summary_statistics.keys())
         convergence_rates = [stats['convergence_rate'] for stats in summary_statistics.values()]
@@ -165,28 +167,32 @@ class GAVisualizer(BaseVisualizer):
         
         # Convergence rate by experiment
         bars1 = ax1.bar(range(len(exp_names)), convergence_rates, color='skyblue', alpha=0.8)
-        ax1.set_title('Convergence Rate by Experiment')
-        ax1.set_xlabel('Experiment')
-        ax1.set_ylabel('Convergence Rate')
+        ax1.set_title('Convergence Rate by Experiment', fontsize=14, pad=20)
+        ax1.set_xlabel('Experiment', fontsize=12)
+        ax1.set_ylabel('Convergence Rate', fontsize=12)
         ax1.set_xticks(range(len(exp_names)))
-        ax1.set_xticklabels([f"Exp{i+1}" for i in range(len(exp_names))], rotation=45)
-        ax1.set_ylim(0, 1)
+        # Use shorter labels without rotation
+        ax1.set_xticklabels([f"E{i+1}" for i in range(len(exp_names))])
+        ax1.set_ylim(0, 1.1)  # Add space at top for value labels
         
-        # Add value labels on bars
-        self.add_value_labels_to_bars(ax1, bars1, format_str='{:.2f}')
+        # Add value labels on bars with better positioning
+        self.add_value_labels_to_bars(ax1, bars1, format_str='{:.2f}', offset=0.02)
         
         # Mean generations to convergence
         bars2 = ax2.bar(range(len(exp_names)), mean_generations, color='lightcoral', alpha=0.8)
-        ax2.set_title('Mean Generations to Convergence')
-        ax2.set_xlabel('Experiment')
-        ax2.set_ylabel('Mean Generations')
+        ax2.set_title('Mean Generations to Convergence', fontsize=14, pad=20)
+        ax2.set_xlabel('Experiment', fontsize=12)
+        ax2.set_ylabel('Mean Generations', fontsize=12)
         ax2.set_xticks(range(len(exp_names)))
-        ax2.set_xticklabels([f"Exp{i+1}" for i in range(len(exp_names))], rotation=45)
+        # Use shorter labels without rotation
+        ax2.set_xticklabels([f"E{i+1}" for i in range(len(exp_names))])
         
-        # Add value labels on bars
-        self.add_value_labels_to_bars(ax2, bars2, format_str='{:.0f}', offset=5)
+        # Add value labels on bars with better positioning
+        max_gen = max(mean_generations)
+        self.add_value_labels_to_bars(ax2, bars2, format_str='{:.0f}', offset=max_gen*0.02)
         
-        plt.tight_layout()
+        # Add padding between subplots
+        plt.subplots_adjust(wspace=0.3)
         self.save_plot('convergence_analysis.png')
     
     def plot_feature_analysis(self, summary_statistics: Dict[str, Any]):
@@ -195,7 +201,8 @@ class GAVisualizer(BaseVisualizer):
         if not summary_statistics:
             return
         
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+        # Use larger figure size
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
         
         exp_names = list(summary_statistics.keys())
         mean_features = [stats['mean_num_features'] for stats in summary_statistics.values()]
@@ -204,25 +211,29 @@ class GAVisualizer(BaseVisualizer):
         # Mean number of selected features
         bars = ax1.bar(range(len(exp_names)), mean_features, yerr=std_features, 
                       capsize=5, color='lightgreen', alpha=0.8)
-        ax1.set_title('Mean Number of Selected Features')
-        ax1.set_xlabel('Experiment')
-        ax1.set_ylabel('Number of Features')
+        ax1.set_title('Mean Number of Selected Features', fontsize=14, pad=20)
+        ax1.set_xlabel('Experiment', fontsize=12)
+        ax1.set_ylabel('Number of Features', fontsize=12)
         ax1.set_xticks(range(len(exp_names)))
-        ax1.set_xticklabels([f"Exp{i+1}" for i in range(len(exp_names))], rotation=45)
+        # Use shorter labels without rotation
+        ax1.set_xticklabels([f"E{i+1}" for i in range(len(exp_names))])
         
         # Feature reduction percentage
         total_features = len(self.X_data.columns)
         reduction_pct = [(total_features - feat) / total_features * 100 for feat in mean_features]
         
         bars2 = ax2.bar(range(len(exp_names)), reduction_pct, color='orange', alpha=0.8)
-        ax2.set_title('Feature Reduction Percentage')
-        ax2.set_xlabel('Experiment')
-        ax2.set_ylabel('Reduction (%)')
+        ax2.set_title('Feature Reduction Percentage', fontsize=14, pad=20)
+        ax2.set_xlabel('Experiment', fontsize=12)
+        ax2.set_ylabel('Reduction (%)', fontsize=12)
         ax2.set_xticks(range(len(exp_names)))
-        ax2.set_xticklabels([f"Exp{i+1}" for i in range(len(exp_names))], rotation=45)
+        # Use shorter labels without rotation
+        ax2.set_xticklabels([f"E{i+1}" for i in range(len(exp_names))])
         
-        # Add value labels
-        self.add_value_labels_to_bars(ax2, bars2, format_str='{:.1f}%', offset=1)
+        # Add value labels with better positioning
+        max_reduction = max(reduction_pct)
+        self.add_value_labels_to_bars(ax2, bars2, format_str='{:.1f}%', offset=max_reduction*0.02)
         
-        plt.tight_layout()
+        # Add padding between subplots
+        plt.subplots_adjust(wspace=0.3)
         self.save_plot('feature_analysis.png') 

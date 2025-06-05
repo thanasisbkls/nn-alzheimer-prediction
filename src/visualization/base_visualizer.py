@@ -38,16 +38,19 @@ class BaseVisualizer(ABC):
         plt.style.use(style)
         sns.set_palette("husl")
         
-        # Common plot parameters
+        # Common plot parameters with better spacing for text
         plt.rcParams.update({
             'figure.figsize': (10, 6),
-            'font.size': 10,
-            'axes.titlesize': 12,
-            'axes.labelsize': 10,
-            'xtick.labelsize': 9,
-            'ytick.labelsize': 9,
-            'legend.fontsize': 9,
-            'figure.titlesize': 14
+            'font.size': 11,
+            'axes.titlesize': 13,
+            'axes.labelsize': 11,
+            'xtick.labelsize': 10,
+            'ytick.labelsize': 10,
+            'legend.fontsize': 10,
+            'figure.titlesize': 15,
+            'axes.titlepad': 20,  # Add padding below titles
+            'axes.labelpad': 10,  # Add padding for axis labels
+            'figure.autolayout': True  # Enable automatic layout adjustment
         })
     
     def save_plot(self, filename: str, dpi: int = 300, bbox_inches: str = 'tight'):
